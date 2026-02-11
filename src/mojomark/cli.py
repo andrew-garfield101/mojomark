@@ -38,9 +38,7 @@ def main():
 def run(category: str | None, samples: int, warmup: int):
     """Run benchmarks against the current Mojo version."""
     mojo_version = get_mojo_version()
-    console.print(
-        "[bold cyan]mojomark[/bold cyan] — Mojo Performance Regression Detector"
-    )
+    console.print("[bold cyan]mojomark[/bold cyan] — Mojo Performance Regression Detector")
     console.print(f"  Mojo version: [bold]{mojo_version}[/bold]")
     console.print(f"  Samples: {samples} | Warmup: {warmup}")
     console.print()
@@ -313,7 +311,8 @@ def report(
 
         if fmt in ("markdown", "both"):
             md = generate_comparison_markdown(base_data, target_data, diffs)
-            path = save_report(md, f"{timestamp}_compare_{base_ver}_vs_{target_ver}.md", reports_dir)
+            fname = f"{timestamp}_compare_{base_ver}_vs_{target_ver}.md"
+            path = save_report(md, fname, reports_dir)
             generated.append(path)
 
         if fmt in ("html", "both"):

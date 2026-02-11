@@ -152,9 +152,7 @@ def generate_comparison_markdown(
     # Comparison table
     lines.append("## Benchmark Comparison")
     lines.append("")
-    lines.append(
-        f"| Category | Benchmark | {base_ver} | {target_ver} | Delta | Status |"
-    )
+    lines.append(f"| Category | Benchmark | {base_ver} | {target_ver} | Delta | Status |")
     lines.append("|----------|-----------|-------:|-------:|------:|--------|")
 
     for d in diffs:
@@ -406,9 +404,7 @@ def generate_comparison_html(
     summary = summarize_diffs(diffs)
 
     parts: list[str] = []
-    parts.append(
-        _HTML_TEMPLATE_HEAD.format(title=f"mojomark — {base_ver} vs {target_ver}")
-    )
+    parts.append(_HTML_TEMPLATE_HEAD.format(title=f"mojomark — {base_ver} vs {target_ver}"))
 
     parts.append("<h1>mojomark Comparison</h1>")
     parts.append(

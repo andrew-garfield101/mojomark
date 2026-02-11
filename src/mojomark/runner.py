@@ -127,9 +127,7 @@ def compile_benchmark(mojo_file: Path, output_dir: Path) -> Path:
         timeout=120,
     )
     if result.returncode != 0:
-        raise RuntimeError(
-            f"Failed to compile {mojo_file.name}:\n{result.stderr}"
-        )
+        raise RuntimeError(f"Failed to compile {mojo_file.name}:\n{result.stderr}")
     return binary_path
 
 
@@ -155,9 +153,7 @@ def run_binary(binary_path: Path) -> int:
     elapsed_ns = time.perf_counter_ns() - start
 
     if result.returncode != 0:
-        raise RuntimeError(
-            f"Benchmark {binary_path.name} failed:\n{result.stderr}"
-        )
+        raise RuntimeError(f"Benchmark {binary_path.name} failed:\n{result.stderr}")
     return elapsed_ns
 
 

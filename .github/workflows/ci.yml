@@ -9,7 +9,7 @@ on:
     - cron: '0 6 * * 1'  # Weekly Monday 6AM UTC
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,15 +22,45 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
-      - name: Lint
+      - name: Lint (ruff check)
         run: ruff check src/ tests/
 
-      - name: Run tests
-        run: pytest -v
+      - name: Format check (ruff format)
+        run: ruff format --check src/ tests/
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run tests with coverage
+        run: pytest -v --cov --cov-report=term-missing
+
+      - name: Upload coverage (Python 3.11 only)
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: .coverage
+          retention-days: 30
 
   benchmark:
-    needs: test
+    needs: [lint, test]
     runs-on: ubuntu-latest
+    # Don't let benchmark failures block the overall CI status —
+    # Mojo installation depends on external infrastructure.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -43,18 +73,23 @@ jobs:
         run: pip install -e .
 
       - name: Install Mojo
+        id: mojo-install
         run: pip install mojo --extra-index-url https://whl.modular.com/nightly/simple/
 
       - name: Verify Mojo installation
+        if: steps.mojo-install.outcome == 'success'
         run: mojo --version
 
       - name: Run benchmarks
+        if: steps.mojo-install.outcome == 'success'
         run: mojomark run --samples 5 --warmup 2
 
       - name: Generate reports
+        if: steps.mojo-install.outcome == 'success'
         run: mojomark report --format both
 
       - name: Upload results
+        if: steps.mojo-install.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
@@ -62,6 +97,7 @@ jobs:
           retention-days: 90
 
       - name: Upload reports
+        if: steps.mojo-install.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-reports

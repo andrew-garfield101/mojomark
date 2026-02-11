@@ -14,7 +14,6 @@ from mojomark.report import (
     save_report,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -153,9 +152,7 @@ class TestComparisonMarkdown:
         md = generate_comparison_markdown(base_run_data, single_run_data, sample_diffs)
         assert "# mojomark Comparison — Mojo 0.7.0 vs 0.8.0" in md
 
-    def test_contains_both_versions_in_table(
-        self, base_run_data, single_run_data, sample_diffs
-    ):
+    def test_contains_both_versions_in_table(self, base_run_data, single_run_data, sample_diffs):
         md = generate_comparison_markdown(base_run_data, single_run_data, sample_diffs)
         assert "0.7.0" in md
         assert "0.8.0" in md
