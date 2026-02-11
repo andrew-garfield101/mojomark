@@ -4,8 +4,14 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from mojomark.compare import Status, compare_results, summarize_diffs
 from mojomark.runner import discover_benchmarks, get_mojo_version, run_benchmark
-from mojomark.storage import save_results
+from mojomark.storage import (
+    find_results_for_version,
+    list_result_files,
+    load_results,
+    save_results,
+)
 
 console = Console()
 
@@ -114,5 +120,124 @@ def list_benchmarks(category: str | None):
 
     for name, bench_category, path in benchmarks:
         table.add_row(bench_category, name, str(path.relative_to(path.parent.parent)))
+
+    console.print(table)
+
+
+@main.command()
+@click.argument("base_version")
+@click.argument("target_version")
+def compare(base_version: str, target_version: str):
+    """Compare benchmark results between two Mojo versions.
+
+    BASE_VERSION is the older/reference version.
+    TARGET_VERSION is the newer version to evaluate.
+
+    Examples:
+        mojomark compare 0.7.0 0.8.0
+    """
+    console.print(
+        f"[bold cyan]mojomark[/bold cyan] — Comparing "
+        f"[bold]{base_version}[/bold] -> [bold]{target_version}[/bold]"
+    )
+    console.print()
+
+    # Find result files for each version
+    base_file = find_results_for_version(base_version)
+    if base_file is None:
+        console.print(f"[red]No results found for Mojo {base_version}[/red]")
+        console.print("[dim]Run 'mojomark history' to see available results.[/dim]")
+        return
+
+    target_file = find_results_for_version(target_version)
+    if target_file is None:
+        console.print(f"[red]No results found for Mojo {target_version}[/red]")
+        console.print("[dim]Run 'mojomark history' to see available results.[/dim]")
+        return
+
+    base_data = load_results(base_file)
+    target_data = load_results(target_file)
+
+    diffs = compare_results(base_data, target_data)
+    if not diffs:
+        console.print("[yellow]No matching benchmarks found between the two runs.[/yellow]")
+        return
+
+    # Build comparison table
+    table = Table(
+        title=f"Comparison: Mojo {base_version} -> {target_version}",
+        show_lines=False,
+    )
+    table.add_column("Category", style="dim", no_wrap=True)
+    table.add_column("Benchmark", style="bold", no_wrap=True)
+    table.add_column(base_version, justify="right", no_wrap=True)
+    table.add_column(target_version, justify="right", no_wrap=True)
+    table.add_column("Delta", justify="right", no_wrap=True)
+    table.add_column("Status", justify="center", no_wrap=True)
+
+    for d in diffs:
+        # Color the delta based on direction
+        if d.delta_pct <= -5:
+            delta_str = f"[bold green]{d.delta_pct:+.1f}%[/bold green]"
+        elif d.delta_pct < 3:
+            delta_str = f"[green]{d.delta_pct:+.1f}%[/green]"
+        elif d.delta_pct < 10:
+            delta_str = f"[yellow]{d.delta_pct:+.1f}%[/yellow]"
+        else:
+            delta_str = f"[bold red]{d.delta_pct:+.1f}%[/bold red]"
+
+        table.add_row(
+            d.category,
+            d.name,
+            format_time(d.base_mean_ns),
+            format_time(d.target_mean_ns),
+            delta_str,
+            d.status.indicator,
+        )
+
+    console.print(table)
+
+    # Print summary
+    summary = summarize_diffs(diffs)
+    parts = []
+    if summary[Status.IMPROVED]:
+        parts.append(f"[bold green]{summary[Status.IMPROVED]} improved[/bold green]")
+    if summary[Status.STABLE]:
+        parts.append(f"[green]{summary[Status.STABLE]} stable[/green]")
+    if summary[Status.WARNING]:
+        parts.append(f"[yellow]{summary[Status.WARNING]} warning[/yellow]")
+    if summary[Status.REGRESSION]:
+        parts.append(f"[bold red]{summary[Status.REGRESSION]} regression[/bold red]")
+
+    console.print(f"\n  Summary: {', '.join(parts)}")
+    console.print(
+        "\n  [dim]Thresholds: "
+        ">> >5% faster | OK <3% change | !! 3-10% slower | XX >10% slower[/dim]"
+    )
+
+
+@main.command()
+def history():
+    """Show all stored benchmark results."""
+    result_files = list_result_files()
+    if not result_files:
+        console.print("[yellow]No stored results found.[/yellow]")
+        console.print("[dim]Run 'mojomark run' to generate results.[/dim]")
+        return
+
+    table = Table(title="Stored Results")
+    table.add_column("Version", style="bold", no_wrap=True)
+    table.add_column("Timestamp", no_wrap=True)
+    table.add_column("Benchmarks", justify="right")
+    table.add_column("File", style="dim")
+
+    for filepath in result_files:
+        data = load_results(filepath)
+        table.add_row(
+            data["mojo_version"],
+            data["timestamp"][:19].replace("T", " "),
+            str(len(data["benchmarks"])),
+            filepath.name,
+        )
 
     console.print(table)
