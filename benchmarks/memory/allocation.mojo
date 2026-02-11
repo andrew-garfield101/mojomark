@@ -5,18 +5,18 @@ Measures: Dynamic memory allocation throughput, DynamicVector grow/shrink patter
 
 
 fn main():
-    let num_vectors = 100
-    let elements_per_vector = 10000
+    var num_vectors = 100
+    var elements_per_vector = 10000
 
     var checksum: Int = 0
 
     # Repeatedly create, grow, and discard dynamic vectors
     for v in range(num_vectors):
-        var vec = DynamicVector[Int]()
+        var vec = List[Int]()
 
         # Grow phase — trigger multiple internal reallocations
         for i in range(elements_per_vector):
-            vec.push_back(i * v + 1)
+            vec.append(i * v + 1)
 
         # Read phase — access to prevent elimination
         for i in range(elements_per_vector):

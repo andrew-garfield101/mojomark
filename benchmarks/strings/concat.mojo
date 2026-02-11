@@ -5,7 +5,7 @@ Measures: String builder efficiency, memory allocation for growing strings.
 
 
 fn main():
-    let iterations = 50000
+    var iterations = 50000
 
     # Build a long string through repeated concatenation
     var result: String = ""

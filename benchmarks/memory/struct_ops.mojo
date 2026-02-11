@@ -26,22 +26,22 @@ struct Point3D(CollectionElement):
 
 
 fn distance_squared(a: Point3D, b: Point3D) -> Float64:
-    let dx = a.x - b.x
-    let dy = a.y - b.y
-    let dz = a.z - b.z
+    var dx = a.x - b.x
+    var dy = a.y - b.y
+    var dz = a.z - b.z
     return dx * dx + dy * dy + dz * dz
 
 
 fn main():
-    let size = 100000
+    var size = 100000
 
     # Create a large array of structs
-    var points = DynamicVector[Point3D]()
+    var points = List[Point3D]()
     var seed: Float64 = 1.0
     for i in range(size):
         seed = (seed * 1.1 + 0.7) % 1000.0
-        let p = Point3D(seed, seed * 0.5, seed * 0.3)
-        points.push_back(p)
+        var p = Point3D(seed, seed * 0.5, seed * 0.3)
+        points.append(p)
 
     # Compute pairwise distances (adjacent pairs)
     var total_dist: Float64 = 0.0

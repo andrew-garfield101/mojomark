@@ -18,7 +18,7 @@ fn main():
     # Run the workload — Python harness handles timing and iterations
     var sink: Int = 0
     for _ in range(10):
-        let r = fibonacci(35)
+        var r = fibonacci(35)
         sink += r
 
     # Prevent dead code elimination

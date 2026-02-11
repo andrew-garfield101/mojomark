@@ -6,25 +6,25 @@ from math import sqrt
 
 
 fn main():
-    let size = 1000000
+    var size = 1000000
 
     # Element-wise vector operations on large arrays
-    var a = DynamicVector[Float64]()
-    var b = DynamicVector[Float64]()
-    var c = DynamicVector[Float64]()
+    var a = List[Float64]()
+    var b = List[Float64]()
+    var c = List[Float64]()
 
     # Initialize with pseudo-random values
     var seed: Float64 = 1.0
     for i in range(size):
         seed = (seed * 1.1 + 0.3) % 1000.0
-        a.push_back(seed)
-        b.push_back(seed * 0.7 + 1.0)
-        c.push_back(0.0)
+        a.append(seed)
+        b.append(seed * 0.7 + 1.0)
+        c.append(0.0)
 
     # Vector add + multiply + sqrt pipeline
     var checksum: Float64 = 0.0
     for i in range(size):
-        let val = (a[i] + b[i]) * 0.5
+        var val = (a[i] + b[i]) * 0.5
         c[i] = sqrt(val)
         checksum += c[i]
 
