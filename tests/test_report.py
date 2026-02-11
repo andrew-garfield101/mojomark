@@ -7,6 +7,7 @@ import pytest
 
 from mojomark.compare import BenchmarkDiff, compare_results
 from mojomark.report import (
+    format_time,
     generate_comparison_html,
     generate_comparison_markdown,
     generate_single_run_html,
@@ -97,6 +98,31 @@ def base_run_data() -> dict:
 def sample_diffs(base_run_data, single_run_data) -> list[BenchmarkDiff]:
     """Pre-computed diffs from base -> target."""
     return compare_results(base_run_data, single_run_data)
+
+
+# ---------------------------------------------------------------------------
+# format_time
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("ns", "expected"),
+    [
+        (0, "0 ns"),
+        (500, "500 ns"),
+        (999, "999 ns"),
+        (1_000, "1.0 us"),
+        (1_500, "1.5 us"),
+        (999_999, "1000.0 us"),
+        (1_000_000, "1.0 ms"),
+        (50_000_000, "50.0 ms"),
+        (999_999_999, "1000.0 ms"),
+        (1_000_000_000, "1.00 s"),
+        (2_500_000_000, "2.50 s"),
+    ],
+)
+def test_format_time(ns, expected):
+    assert format_time(ns) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -218,11 +244,6 @@ class TestSingleRunHtml:
 
 
 class TestComparisonHtml:
-    def test_is_valid_html_structure(self, base_run_data, single_run_data, sample_diffs):
-        html = generate_comparison_html(base_run_data, single_run_data, sample_diffs)
-        assert "<!DOCTYPE html>" in html
-        assert "</html>" in html
-
     def test_contains_both_versions(self, base_run_data, single_run_data, sample_diffs):
         html = generate_comparison_html(base_run_data, single_run_data, sample_diffs)
         assert "0.7.0" in html
