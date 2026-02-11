@@ -1,5 +1,7 @@
 # mojomark
 
+[![CI](https://github.com/andrew-garfield101/mojomark/actions/workflows/ci.yml/badge.svg)](https://github.com/andrew-garfield101/mojomark/actions/workflows/ci.yml)
+
 A performance regression detector for the [Mojo](https://www.modular.com/mojo) programming language.
 
 Run standardized benchmarks across Mojo versions, track results over time, and detect performance regressions automatically.
@@ -44,14 +46,30 @@ mojomark list
 mojomark compare 0.7.0 0.8.0
 ```
 
+### Generate Reports
+
+```bash
+# Generate Markdown + HTML reports from the latest run
+mojomark report
+
+# HTML only
+mojomark report --format html
+
+# Comparison report between two versions
+mojomark report --compare-versions 0.7.0 0.8.0
+
+# Custom output directory
+mojomark report -o ./my-reports
+```
+
 ## Benchmark Categories
 
 | Category | What It Measures |
 |----------|-----------------|
-| **compute** | CPU-bound algorithms (fibonacci, sorting, matrix math) |
+| **compute** | CPU-bound algorithms (fibonacci, sorting, matrix multiplication) |
 | **memory** | Allocation patterns, struct operations, copy/move semantics |
-| **simd** | Vectorized operations, SIMD throughput |
-| **strings** | String manipulation, parsing, search |
+| **simd** | Vectorized operations, SIMD throughput, dot products |
+| **strings** | String manipulation, concatenation, substring search |
 
 ## How It Works
 

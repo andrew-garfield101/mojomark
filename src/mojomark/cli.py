@@ -5,6 +5,14 @@ from rich.console import Console
 from rich.table import Table
 
 from mojomark.compare import Status, compare_results, summarize_diffs
+from mojomark.report import (
+    format_time,
+    generate_comparison_html,
+    generate_comparison_markdown,
+    generate_single_run_html,
+    generate_single_run_markdown,
+    save_report,
+)
 from mojomark.runner import discover_benchmarks, get_mojo_version, run_benchmark
 from mojomark.storage import (
     find_results_for_version,
@@ -14,18 +22,6 @@ from mojomark.storage import (
 )
 
 console = Console()
-
-
-def format_time(ns: float) -> str:
-    """Format nanoseconds into a human-readable string."""
-    if ns < 1_000:
-        return f"{ns:.0f} ns"
-    elif ns < 1_000_000:
-        return f"{ns / 1_000:.1f} us"
-    elif ns < 1_000_000_000:
-        return f"{ns / 1_000_000:.1f} ms"
-    else:
-        return f"{ns / 1_000_000_000:.2f} s"
 
 
 @click.group()
@@ -241,3 +237,130 @@ def history():
         )
 
     console.print(table)
+
+
+@main.command()
+@click.option(
+    "--format",
+    "-f",
+    "fmt",
+    type=click.Choice(["markdown", "html", "both"]),
+    default="both",
+    help="Output format (default: both).",
+)
+@click.option("--version", "-v", "version", default=None, help="Mojo version to report on.")
+@click.option(
+    "--compare-versions",
+    "-c",
+    nargs=2,
+    default=None,
+    help="Two versions to compare: BASE TARGET.",
+)
+@click.option("--output", "-o", "output_dir", default=None, help="Custom output directory.")
+def report(
+    fmt: str,
+    version: str | None,
+    compare_versions: tuple[str, str] | None,
+    output_dir: str | None,
+):
+    """Generate Markdown and/or HTML reports from benchmark results.
+
+    By default, generates a report from the most recent result.
+    Use --compare-versions to generate a comparison report.
+
+    Examples:
+
+        mojomark report
+
+        mojomark report --format markdown
+
+        mojomark report --compare-versions 0.7.0 0.8.0
+
+        mojomark report -v 0.8.0 -f html
+    """
+    from pathlib import Path
+
+    from mojomark.report import REPORTS_DIR
+
+    reports_dir = Path(output_dir) if output_dir else REPORTS_DIR
+    generated: list[Path] = []
+
+    if compare_versions:
+        # --- Comparison report ---
+        base_ver, target_ver = compare_versions
+
+        base_file = find_results_for_version(base_ver)
+        if base_file is None:
+            console.print(f"[red]No results found for Mojo {base_ver}[/red]")
+            console.print("[dim]Run 'mojomark history' to see available results.[/dim]")
+            return
+
+        target_file = find_results_for_version(target_ver)
+        if target_file is None:
+            console.print(f"[red]No results found for Mojo {target_ver}[/red]")
+            console.print("[dim]Run 'mojomark history' to see available results.[/dim]")
+            return
+
+        base_data = load_results(base_file)
+        target_data = load_results(target_file)
+
+        diffs = compare_results(base_data, target_data)
+        if not diffs:
+            console.print("[yellow]No matching benchmarks found between versions.[/yellow]")
+            return
+
+        timestamp = _report_timestamp()
+
+        if fmt in ("markdown", "both"):
+            md = generate_comparison_markdown(base_data, target_data, diffs)
+            path = save_report(md, f"{timestamp}_compare_{base_ver}_vs_{target_ver}.md", reports_dir)
+            generated.append(path)
+
+        if fmt in ("html", "both"):
+            html = generate_comparison_html(base_data, target_data, diffs)
+            path = save_report(
+                html, f"{timestamp}_compare_{base_ver}_vs_{target_ver}.html", reports_dir
+            )
+            generated.append(path)
+
+    else:
+        # --- Single run report ---
+        if version:
+            result_file = find_results_for_version(version)
+            if result_file is None:
+                console.print(f"[red]No results found for Mojo {version}[/red]")
+                console.print("[dim]Run 'mojomark history' to see available results.[/dim]")
+                return
+        else:
+            result_files = list_result_files()
+            if not result_files:
+                console.print("[yellow]No stored results found.[/yellow]")
+                console.print("[dim]Run 'mojomark run' first to generate results.[/dim]")
+                return
+            result_file = result_files[0]  # Most recent
+
+        result_data = load_results(result_file)
+        mojo_ver = result_data["mojo_version"]
+        timestamp = _report_timestamp()
+
+        if fmt in ("markdown", "both"):
+            md = generate_single_run_markdown(result_data)
+            path = save_report(md, f"{timestamp}_mojo-{mojo_ver}.md", reports_dir)
+            generated.append(path)
+
+        if fmt in ("html", "both"):
+            html = generate_single_run_html(result_data)
+            path = save_report(html, f"{timestamp}_mojo-{mojo_ver}.html", reports_dir)
+            generated.append(path)
+
+    # Print summary
+    console.print(f"[bold cyan]mojomark[/bold cyan] — Report generated")
+    for path in generated:
+        console.print(f"  [green]✓[/green] {path}")
+
+
+def _report_timestamp() -> str:
+    """Generate a timestamp string for report filenames."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
