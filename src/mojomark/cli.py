@@ -39,7 +39,7 @@ def run(category: str | None, samples: int, warmup: int):
     """Run benchmarks against the current Mojo version."""
     mojo_version = get_mojo_version()
     console.print(
-        f"[bold cyan]mojomark[/bold cyan] — Mojo Performance Regression Detector"
+        "[bold cyan]mojomark[/bold cyan] — Mojo Performance Regression Detector"
     )
     console.print(f"  Mojo version: [bold]{mojo_version}[/bold]")
     console.print(f"  Samples: {samples} | Warmup: {warmup}")
@@ -354,7 +354,7 @@ def report(
             generated.append(path)
 
     # Print summary
-    console.print(f"[bold cyan]mojomark[/bold cyan] — Report generated")
+    console.print("[bold cyan]mojomark[/bold cyan] — Report generated")
     for path in generated:
         console.print(f"  [green]✓[/green] {path}")
 

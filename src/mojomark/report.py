@@ -4,8 +4,7 @@ from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
 
-from mojomark.compare import BenchmarkDiff, Status, compare_results, summarize_diffs
-from mojomark.storage import find_results_for_version, load_results
+from mojomark.compare import BenchmarkDiff, Status, summarize_diffs
 
 REPORTS_DIR = Path(__file__).parent.parent.parent / "reports"
 

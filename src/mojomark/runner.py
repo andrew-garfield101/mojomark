@@ -1,6 +1,5 @@
 """Benchmark runner — discovers, compiles, and executes Mojo benchmarks."""
 
-import shutil
 import subprocess
 import tempfile
 import time

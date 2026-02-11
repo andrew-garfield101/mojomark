@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mojomark.compare import BenchmarkDiff, Status, compare_results
+from mojomark.compare import BenchmarkDiff, compare_results
 from mojomark.report import (
     generate_comparison_html,
     generate_comparison_markdown,
