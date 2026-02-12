@@ -10,6 +10,7 @@ from mojomark.runner import (
     BenchmarkResult,
     _parse_internal_timing,
     discover_benchmarks,
+    find_benchmark_set,
     get_mojo_version,
     run_binary,
 )
@@ -109,6 +110,92 @@ class TestDiscoverBenchmarks:
 
             benchmarks = discover_benchmarks(benchmarks_dir=base)
             assert benchmarks[0][1] == "memory"
+
+
+# ---------------------------------------------------------------------------
+# find_benchmark_set — version-aware directory selection
+# ---------------------------------------------------------------------------
+
+
+class TestFindBenchmarkSet:
+    def _create_version_tree(self, base: Path, versions: list[str]):
+        """Helper: create v{x}/compute/fib.mojo for each version."""
+        for v in versions:
+            d = base / f"v{v}" / "compute"
+            d.mkdir(parents=True)
+            (d / "fib.mojo").write_text("fn main(): pass")
+
+    def test_selects_matching_version(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            self._create_version_tree(base, ["0.7", "0.26"])
+
+            result = find_benchmark_set("0.26.1.0", base)
+            assert "v0.26" in result.name
+
+    def test_selects_lower_when_exact_missing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            self._create_version_tree(base, ["0.7", "0.26"])
+
+            # Version 0.20 falls between sets — should pick v0.7
+            result = find_benchmark_set("0.20.0", base)
+            assert "v0.7" in result.name
+
+    def test_selects_v0_7_for_old_version(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            self._create_version_tree(base, ["0.7", "0.26"])
+
+            result = find_benchmark_set("0.7.0", base)
+            assert "v0.7" in result.name
+
+    def test_falls_back_to_base_dir_without_version_dirs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "compute").mkdir()
+            (base / "compute" / "fib.mojo").write_text("fn main(): pass")
+
+            result = find_benchmark_set("0.7.0", base)
+            assert result == base
+
+    def test_selects_highest_not_exceeding(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            self._create_version_tree(base, ["0.5", "0.7", "0.26", "1.0"])
+
+            result = find_benchmark_set("0.26.1.0", base)
+            assert "v0.26" in result.name
+
+
+class TestDiscoverBenchmarksVersioned:
+    def test_uses_correct_set_for_version(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            # Create two version sets with different benchmarks
+            (base / "v0.7" / "compute").mkdir(parents=True)
+            (base / "v0.7" / "compute" / "fib.mojo").write_text("fn main(): pass")
+
+            (base / "v0.26" / "compute").mkdir(parents=True)
+            (base / "v0.26" / "compute" / "fib.mojo").write_text("fn main(): pass")
+            (base / "v0.26" / "simd").mkdir(parents=True)
+            (base / "v0.26" / "simd" / "dot.mojo").write_text("fn main(): pass")
+
+            old = discover_benchmarks(benchmarks_dir=base, mojo_version="0.7.0")
+            new = discover_benchmarks(benchmarks_dir=base, mojo_version="0.26.1.0")
+
+            assert len(old) == 1
+            assert len(new) == 2
+
+    def test_without_version_searches_base(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "compute").mkdir()
+            (base / "compute" / "fib.mojo").write_text("fn main(): pass")
+
+            # No mojo_version — should search base dir directly
+            result = discover_benchmarks(benchmarks_dir=base)
+            assert len(result) == 1
 
 
 # ---------------------------------------------------------------------------

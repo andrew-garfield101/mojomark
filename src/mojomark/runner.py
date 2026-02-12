@@ -16,6 +16,64 @@ TIMING_MARKER = "MOJOMARK_NS"
 BENCHMARKS_DIR = Path(__file__).parent.parent.parent / "benchmarks"
 
 
+def _parse_version_tuple(version_str: str) -> tuple[int, ...]:
+    """Parse a version string like ``'0.7.0'`` into a comparable tuple."""
+    parts: list[int] = []
+    for part in version_str.split("."):
+        try:
+            parts.append(int(part))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts)
+
+
+def find_benchmark_set(
+    mojo_version: str,
+    benchmarks_dir: Path = BENCHMARKS_DIR,
+) -> Path:
+    """Find the best benchmark set for a given Mojo version.
+
+    Scans *benchmarks_dir* for versioned subdirectories (``v0.7/``, ``v0.26/``,
+    etc.) and returns the one whose version tag is the highest that does not
+    exceed *mojo_version*.
+
+    Falls back to *benchmarks_dir* itself if no versioned subdirs exist (e.g.
+    in test fixtures).
+
+    Args:
+        mojo_version: Target Mojo version string.
+        benchmarks_dir: Root benchmarks directory.
+
+    Returns:
+        Path to the selected benchmark set directory.
+    """
+    target = _parse_version_tuple(mojo_version)
+
+    # Collect versioned subdirectories
+    candidates: list[tuple[tuple[int, ...], Path]] = []
+    if benchmarks_dir.exists():
+        for child in benchmarks_dir.iterdir():
+            if child.is_dir() and child.name.startswith("v"):
+                ver_str = child.name[1:]  # strip the leading 'v'
+                ver_tuple = _parse_version_tuple(ver_str)
+                candidates.append((ver_tuple, child))
+
+    if not candidates:
+        # No versioned subdirs — fall back to flat layout (tests, etc.)
+        return benchmarks_dir
+
+    # Sort by version (ascending) and pick the highest one <= target
+    candidates.sort(key=lambda c: c[0])
+    best = candidates[0][1]  # default to lowest if nothing matches
+    for ver_tuple, path in candidates:
+        if ver_tuple <= target:
+            best = path
+        else:
+            break
+
+    return best
+
+
 @dataclass
 class BenchmarkResult:
     """Timing results for a single benchmark."""
@@ -73,12 +131,19 @@ class BenchmarkResult:
 def discover_benchmarks(
     benchmarks_dir: Path = BENCHMARKS_DIR,
     category: str | None = None,
+    mojo_version: str | None = None,
 ) -> list[tuple[str, str, Path]]:
     """Discover all .mojo benchmark files.
+
+    When *mojo_version* is provided, the best matching version-specific
+    benchmark set is selected automatically (e.g. ``v0.7/`` or ``v0.26/``).
 
     Returns:
         List of (name, category, path) tuples.
     """
+    if mojo_version:
+        benchmarks_dir = find_benchmark_set(mojo_version, benchmarks_dir)
+
     benchmarks = []
     if not benchmarks_dir.exists():
         return benchmarks

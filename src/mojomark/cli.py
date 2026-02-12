@@ -52,7 +52,7 @@ def run(category: str | None, samples: int, warmup: int):
     console.print(f"  Samples: {samples} | Warmup: {warmup}")
     console.print()
 
-    benchmarks = discover_benchmarks(category=category)
+    benchmarks = discover_benchmarks(category=category, mojo_version=mojo_version)
     if not benchmarks:
         console.print("[yellow]No benchmarks found.[/yellow]")
         return
@@ -666,17 +666,23 @@ def regression(
     console.print(f"  Samples:  {samples} | Warmup: {warmup}")
     console.print()
 
-    benchmarks = discover_benchmarks(category=category)
-    if not benchmarks:
+    # Discover benchmarks per-version (each version gets its own syntax set)
+    base_benchmarks = discover_benchmarks(category=category, mojo_version=base_version)
+    target_benchmarks = discover_benchmarks(category=category, mojo_version=target_version)
+
+    if not base_benchmarks and not target_benchmarks:
         console.print("[yellow]No benchmarks found.[/yellow]")
         return
 
-    console.print(f"  {len(benchmarks)} benchmark(s) to run\n")
+    console.print(
+        f"  Benchmarks: {len(base_benchmarks)} for {base_version}, "
+        f"{len(target_benchmarks)} for {target_version}\n"
+    )
 
     # --- Phase 1: Benchmark base version ---
     console.rule(f"[bold]Phase 1 — Mojo {base_version}[/bold]")
     try:
-        base_results = _run_benchmarks_with_version(base_version, benchmarks, samples, warmup)
+        base_results = _run_benchmarks_with_version(base_version, base_benchmarks, samples, warmup)
     except RuntimeError as e:
         console.print(f"\n[red]Failed to set up Mojo {base_version}:[/red] {e}")
         return
@@ -692,7 +698,9 @@ def regression(
     console.print()
     console.rule(f"[bold]Phase 2 — Mojo {target_version}[/bold]")
     try:
-        target_results = _run_benchmarks_with_version(target_version, benchmarks, samples, warmup)
+        target_results = _run_benchmarks_with_version(
+            target_version, target_benchmarks, samples, warmup
+        )
     except RuntimeError as e:
         console.print(f"\n[red]Failed to set up Mojo {target_version}:[/red] {e}")
         return
