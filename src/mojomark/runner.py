@@ -1,10 +1,17 @@
 """Benchmark runner — discovers, compiles, and executes Mojo benchmarks."""
 
+import logging
 import subprocess
 import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+# Marker printed by instrumented Mojo benchmarks (see benchmarks/*.mojo).
+# Format: "MOJOMARK_NS <elapsed_nanoseconds>"
+TIMING_MARKER = "MOJOMARK_NS"
 
 BENCHMARKS_DIR = Path(__file__).parent.parent.parent / "benchmarks"
 
@@ -88,11 +95,16 @@ def discover_benchmarks(
     return benchmarks
 
 
-def get_mojo_version() -> str:
-    """Get the installed Mojo version string."""
+def get_mojo_version(mojo_binary: Path | None = None) -> str:
+    """Get the installed Mojo version string.
+
+    Args:
+        mojo_binary: Path to a specific mojo binary. If None, uses PATH.
+    """
+    cmd = str(mojo_binary) if mojo_binary else "mojo"
     try:
         result = subprocess.run(
-            ["mojo", "--version"],
+            [cmd, "--version"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -106,12 +118,17 @@ def get_mojo_version() -> str:
         return "unknown"
 
 
-def compile_benchmark(mojo_file: Path, output_dir: Path) -> Path:
+def compile_benchmark(
+    mojo_file: Path,
+    output_dir: Path,
+    mojo_binary: Path | None = None,
+) -> Path:
     """Compile a .mojo file into a binary.
 
     Args:
         mojo_file: Path to the .mojo source file.
         output_dir: Directory to place the compiled binary.
+        mojo_binary: Path to a specific mojo binary. If None, uses PATH.
 
     Returns:
         Path to the compiled binary.
@@ -119,9 +136,10 @@ def compile_benchmark(mojo_file: Path, output_dir: Path) -> Path:
     Raises:
         RuntimeError: If compilation fails.
     """
+    cmd = str(mojo_binary) if mojo_binary else "mojo"
     binary_path = output_dir / mojo_file.stem
     result = subprocess.run(
-        ["mojo", "build", str(mojo_file), "-o", str(binary_path)],
+        [cmd, "build", str(mojo_file), "-o", str(binary_path)],
         capture_output=True,
         text=True,
         timeout=120,
@@ -131,14 +149,35 @@ def compile_benchmark(mojo_file: Path, output_dir: Path) -> Path:
     return binary_path
 
 
+def _parse_internal_timing(stdout: str) -> int | None:
+    """Extract Mojo-side nanosecond timing from benchmark stdout.
+
+    Instrumented benchmarks print a line like ``MOJOMARK_NS 12345678``.
+    Returns the integer value, or *None* if the marker is not found.
+    """
+    for line in stdout.strip().splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == TIMING_MARKER:
+            try:
+                return int(parts[1])
+            except ValueError:
+                continue
+    return None
+
+
 def run_binary(binary_path: Path) -> int:
     """Run a compiled benchmark binary and return execution time in nanoseconds.
+
+    If the binary is instrumented (prints a ``MOJOMARK_NS`` marker), the
+    Mojo-side measurement is used — this excludes process-spawn and
+    dynamic-linker overhead, giving a much cleaner signal.  Falls back to
+    wall-clock timing when the marker is absent.
 
     Args:
         binary_path: Path to the compiled binary.
 
     Returns:
-        Wall-clock execution time in nanoseconds.
+        Execution time in nanoseconds (internal or wall-clock).
 
     Raises:
         RuntimeError: If the binary fails to execute.
@@ -150,11 +189,21 @@ def run_binary(binary_path: Path) -> int:
         text=True,
         timeout=300,
     )
-    elapsed_ns = time.perf_counter_ns() - start
+    wall_ns = time.perf_counter_ns() - start
 
     if result.returncode != 0:
         raise RuntimeError(f"Benchmark {binary_path.name} failed:\n{result.stderr}")
-    return elapsed_ns
+
+    internal_ns = _parse_internal_timing(result.stdout)
+    if internal_ns is not None:
+        return internal_ns
+
+    log.debug(
+        "%s: no MOJOMARK_NS marker — falling back to wall-clock (%d ns)",
+        binary_path.name,
+        wall_ns,
+    )
+    return wall_ns
 
 
 def run_benchmark(
@@ -163,6 +212,7 @@ def run_benchmark(
     category: str,
     samples: int = 10,
     warmup: int = 3,
+    mojo_binary: Path | None = None,
 ) -> BenchmarkResult:
     """Compile and run a single benchmark, collecting timing samples.
 
@@ -172,6 +222,7 @@ def run_benchmark(
         category: Benchmark category.
         samples: Number of timed executions.
         warmup: Number of warmup executions (not timed).
+        mojo_binary: Path to a specific mojo binary. If None, uses PATH.
 
     Returns:
         BenchmarkResult with timing data.
@@ -179,7 +230,7 @@ def run_benchmark(
     result = BenchmarkResult(name=name, category=category)
 
     with tempfile.TemporaryDirectory(prefix="mojomark_") as tmpdir:
-        binary_path = compile_benchmark(mojo_file, Path(tmpdir))
+        binary_path = compile_benchmark(mojo_file, Path(tmpdir), mojo_binary=mojo_binary)
 
         # Warmup runs — let OS caches and CPU settle
         for _ in range(warmup):

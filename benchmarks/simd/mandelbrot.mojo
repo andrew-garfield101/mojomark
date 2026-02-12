@@ -5,9 +5,11 @@ floating-point throughput at maximum width, and compiler vectorization quality.
 
 Computes a section of the Mandelbrot set using explicit SIMD types so that
 multiple pixels are evaluated in parallel within a single instruction.
+The entire grid computation is timed; constant setup is negligible.
 """
 
 from sys.info import simdwidthof
+from time import now
 
 alias WIDTH = 512
 alias HEIGHT = 512
@@ -61,6 +63,9 @@ fn main():
     var dx = (X_MAX - X_MIN) / WIDTH
     var dy = (Y_MAX - Y_MIN) / HEIGHT
 
+    # --- Timed section ---
+    var _bench_start = now()
+
     # Accumulate total iteration counts as a checksum
     var total_iters: Int = 0
 
@@ -74,7 +79,7 @@ fn main():
         var col = 0
         while col + SIMD_WIDTH <= WIDTH:
             # Build cx vector: each lane gets a different column's x coordinate
-            var cx: SIMD[DType.float64, SIMD_WIDTH]
+            var cx = SIMD[DType.float64, SIMD_WIDTH](0)
             for lane in range(SIMD_WIDTH):
                 cx[lane] = X_MIN + (col + lane) * dx
 
@@ -94,6 +99,11 @@ fn main():
             total_iters += int(iters[0])
             col += 1
 
+    var _bench_elapsed = now() - _bench_start
+
     # Prevent dead code elimination
     if total_iters == -1:
         print("unreachable")
+
+    # Report timing to harness
+    print("MOJOMARK_NS", _bench_elapsed)

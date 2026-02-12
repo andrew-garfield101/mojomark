@@ -1,10 +1,15 @@
 """Benchmark: Sorting
 Category: compute
 Measures: Array operations, comparison overhead, memory access patterns.
+
+Setup (array construction) is excluded from the timing.
+Only the quicksort itself is measured.
 """
 
+from time import now
 
-fn quicksort(inout arr: List[Int], low: Int, high: Int):
+
+fn quicksort(inout arr: DynamicVector[Int], low: Int, high: Int):
     if low >= high:
         return
     var pivot = arr[high]
@@ -26,15 +31,23 @@ fn quicksort(inout arr: List[Int], low: Int, high: Int):
 fn main():
     var size = 50000
 
-    # Build a pseudo-random array using a simple LCG
-    var arr = List[Int]()
+    # --- Setup (not timed) ---
+    var arr = DynamicVector[Int]()
     var seed: Int = 42
     for _ in range(size):
         seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF
-        arr.append(seed)
+        arr.push_back(seed)
+
+    # --- Timed section ---
+    var _bench_start = now()
 
     quicksort(arr, 0, size - 1)
+
+    var _bench_elapsed = now() - _bench_start
 
     # Prevent dead code elimination
     if arr[0] == -1:
         print("unreachable")
+
+    # Report timing to harness
+    print("MOJOMARK_NS", _bench_elapsed)

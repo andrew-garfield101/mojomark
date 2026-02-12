@@ -2,10 +2,11 @@
 Category: compute
 Measures: Function call overhead, recursion optimization, integer arithmetic.
 
-The Python harness compiles this once and runs the binary multiple times,
-timing each execution externally. This avoids compiler optimization issues
-with in-process loop timing.
+Timing is measured inside Mojo via ``time.now()`` so that only the hot loop
+is captured — process-spawn and linker overhead are excluded.
 """
+
+from time import now
 
 
 fn fibonacci(n: Int) -> Int:
@@ -15,12 +16,19 @@ fn fibonacci(n: Int) -> Int:
 
 
 fn main():
-    # Run the workload — Python harness handles timing and iterations
+    # Timed section — only the computational work
+    var _bench_start = now()
+
     var sink: Int = 0
     for _ in range(10):
         var r = fibonacci(35)
         sink += r
 
+    var _bench_elapsed = now() - _bench_start
+
     # Prevent dead code elimination
     if sink == -1:
         print("unreachable")
+
+    # Report timing to harness
+    print("MOJOMARK_NS", _bench_elapsed)

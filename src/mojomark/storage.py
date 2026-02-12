@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from mojomark.machine import get_machine_info
 from mojomark.runner import BenchmarkResult
 
 RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
@@ -33,6 +34,7 @@ def save_results(
     data = {
         "mojo_version": mojo_version,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "machine": get_machine_info(),
         "benchmarks": [r.to_dict() for r in results],
     }
 

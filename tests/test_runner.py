@@ -4,7 +4,15 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from mojomark.runner import BenchmarkResult, discover_benchmarks, get_mojo_version
+import pytest
+
+from mojomark.runner import (
+    BenchmarkResult,
+    _parse_internal_timing,
+    discover_benchmarks,
+    get_mojo_version,
+    run_binary,
+)
 
 # ---------------------------------------------------------------------------
 # BenchmarkResult stats + serialization
@@ -127,3 +135,84 @@ class TestGetMojoVersion:
             result = get_mojo_version()
             assert isinstance(result, str)
             assert len(result) > 0
+
+
+# ---------------------------------------------------------------------------
+# _parse_internal_timing — parsing MOJOMARK_NS from stdout
+# ---------------------------------------------------------------------------
+
+
+class TestParseInternalTiming:
+    """Tests for the Mojo-side timing marker parser."""
+
+    def test_parses_valid_marker(self):
+        stdout = "some setup output\nMOJOMARK_NS 12345678\n"
+        assert _parse_internal_timing(stdout) == 12345678
+
+    def test_parses_large_value(self):
+        stdout = "MOJOMARK_NS 9999999999999\n"
+        assert _parse_internal_timing(stdout) == 9999999999999
+
+    def test_returns_none_when_no_marker(self):
+        stdout = "hello world\nno timing here\n"
+        assert _parse_internal_timing(stdout) is None
+
+    def test_returns_none_for_empty_stdout(self):
+        assert _parse_internal_timing("") is None
+
+    def test_ignores_malformed_value(self):
+        stdout = "MOJOMARK_NS not_a_number\n"
+        assert _parse_internal_timing(stdout) is None
+
+    def test_takes_first_marker(self):
+        stdout = "MOJOMARK_NS 111\nMOJOMARK_NS 222\n"
+        assert _parse_internal_timing(stdout) == 111
+
+    def test_ignores_partial_marker(self):
+        # Only one token on the line — no value after the marker
+        stdout = "MOJOMARK_NS\n"
+        assert _parse_internal_timing(stdout) is None
+
+    def test_marker_among_other_output(self):
+        stdout = (
+            "Compiling benchmark...\nRunning 10 iterations\nchecksum = 42\nMOJOMARK_NS 500000\n"
+        )
+        assert _parse_internal_timing(stdout) == 500000
+
+
+# ---------------------------------------------------------------------------
+# run_binary — integration of internal vs wall-clock timing
+# ---------------------------------------------------------------------------
+
+
+class TestRunBinary:
+    """Tests for run_binary with mocked subprocess."""
+
+    def test_uses_internal_timing_when_marker_present(self):
+        with patch("mojomark.runner.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = "MOJOMARK_NS 42000\n"
+            mock_run.return_value.stderr = ""
+
+            result = run_binary(Path("/fake/binary"))
+            assert result == 42000
+
+    def test_falls_back_to_wall_clock_when_no_marker(self):
+        with patch("mojomark.runner.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = "no marker here\n"
+            mock_run.return_value.stderr = ""
+
+            result = run_binary(Path("/fake/binary"))
+            # Should be a positive wall-clock value (not 42000)
+            assert isinstance(result, int)
+            assert result > 0
+
+    def test_raises_on_nonzero_exit(self):
+        with patch("mojomark.runner.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 1
+            mock_run.return_value.stdout = ""
+            mock_run.return_value.stderr = "segfault"
+
+            with pytest.raises(RuntimeError, match="failed"):
+                run_binary(Path("/fake/binary"))
