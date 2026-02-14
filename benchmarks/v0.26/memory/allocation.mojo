@@ -2,41 +2,38 @@
 Category: memory
 Measures: Dynamic memory allocation throughput, List grow/shrink patterns.
 
-The entire allocation/grow/read cycle is the workload here — there is no
-separate setup phase, so the full loop is timed.
+The entire allocation/grow/read cycle is the workload — there is no separate
+setup phase.
+
+Uses Mojo's stdlib benchmark module for statistically rigorous timing with
+adaptive batching and compiler anti-optimization barriers (keep).
 """
 
-from time import perf_counter_ns
+import benchmark
+from benchmark import keep
 
 
-fn main():
-    var num_vectors = 100
-    var elements_per_vector = 10000
+fn main() raises:
+    fn workload() capturing:
+        var num_vectors = 100
+        var elements_per_vector = 10000
+        var checksum: Int = 0
 
-    # --- Timed section ---
-    var _bench_start = perf_counter_ns()
+        # Repeatedly create, grow, and discard dynamic lists
+        for v in range(num_vectors):
+            var vec = List[Int]()
 
-    var checksum: Int = 0
+            # Grow phase — trigger multiple internal reallocations
+            for i in range(elements_per_vector):
+                vec.append(i * v + 1)
 
-    # Repeatedly create, grow, and discard dynamic lists
-    for v in range(num_vectors):
-        var vec = List[Int]()
+            # Read phase — access to prevent elimination
+            for i in range(elements_per_vector):
+                checksum += vec[i]
 
-        # Grow phase — trigger multiple internal reallocations
-        for i in range(elements_per_vector):
-            vec.append(i * v + 1)
+            # Vec goes out of scope here — freed each iteration
 
-        # Read phase — access to prevent elimination
-        for i in range(elements_per_vector):
-            checksum += vec[i]
+        keep(checksum)
 
-        # Vec goes out of scope here — freed each iteration
-
-    var _bench_elapsed = perf_counter_ns() - _bench_start
-
-    # Prevent dead code elimination
-    if checksum == -1:
-        print("unreachable")
-
-    # Report timing to harness
-    print("MOJOMARK_NS", _bench_elapsed)
+    var report = benchmark.run[workload](2, 1_000_000_000, 0.1, 2)
+    print("MOJOMARK_NS", Int(report.mean("ns")))

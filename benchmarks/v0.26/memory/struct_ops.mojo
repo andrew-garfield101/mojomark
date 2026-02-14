@@ -2,13 +2,17 @@
 Category: memory
 Measures: Struct creation, field access, and copy overhead.
 
-Setup (building the points array) is excluded from the timing.
-Only the pairwise distance computation is measured.
+Setup (building the points array) happens once before benchmarking.
+The workload captures the points list and computes pairwise distances
+(read-only access).
 
+Uses Mojo's stdlib benchmark module for statistically rigorous timing with
+adaptive batching and compiler anti-optimization barriers (keep).
 Uses @fieldwise_init + explicit Copyable/Movable conformance (modern Mojo).
 """
 
-from time import perf_counter_ns
+import benchmark
+from benchmark import keep
 
 
 @fieldwise_init
@@ -25,7 +29,7 @@ fn distance_squared(a: Point3D, b: Point3D) -> Float64:
     return dx * dx + dy * dy + dz * dz
 
 
-fn main():
+fn main() raises:
     var size = 100000
 
     # --- Setup (not timed) ---
@@ -36,19 +40,13 @@ fn main():
         var p = Point3D(seed, seed * 0.5, seed * 0.3)
         points.append(p^)
 
-    # --- Timed section ---
-    var _bench_start = perf_counter_ns()
+    # --- Benchmarked workload ---
+    fn workload() capturing:
+        # Compute pairwise distances (adjacent pairs) — read-only
+        var total_dist: Float64 = 0.0
+        for i in range(size - 1):
+            total_dist += distance_squared(points[i], points[i + 1])
+        keep(total_dist)
 
-    # Compute pairwise distances (adjacent pairs)
-    var total_dist: Float64 = 0.0
-    for i in range(size - 1):
-        total_dist += distance_squared(points[i], points[i + 1])
-
-    var _bench_elapsed = perf_counter_ns() - _bench_start
-
-    # Prevent dead code elimination
-    if total_dist == -1.0:
-        print("unreachable")
-
-    # Report timing to harness
-    print("MOJOMARK_NS", _bench_elapsed)
+    var report = benchmark.run[workload](2, 1_000_000_000, 0.1, 2)
+    print("MOJOMARK_NS", Int(report.mean("ns")))

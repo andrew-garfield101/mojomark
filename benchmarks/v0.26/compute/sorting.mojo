@@ -2,11 +2,15 @@
 Category: compute
 Measures: Array operations, comparison overhead, memory access patterns.
 
-Setup (array construction) is excluded from the timing.
-Only the quicksort itself is measured.
+A template array is built once during setup. The workload copies the template
+into a fresh array each iteration so quicksort always operates on unsorted data.
+
+Uses Mojo's stdlib benchmark module for statistically rigorous timing with
+adaptive batching and compiler anti-optimization barriers (keep).
 """
 
-from time import perf_counter_ns
+import benchmark
+from benchmark import keep
 
 
 fn quicksort(mut arr: List[Int], low: Int, high: Int):
@@ -28,26 +32,24 @@ fn quicksort(mut arr: List[Int], low: Int, high: Int):
     quicksort(arr, pi + 1, high)
 
 
-fn main():
+fn main() raises:
     var size = 50000
 
-    # --- Setup (not timed) ---
-    var arr = List[Int]()
+    # --- Setup: build template array (not timed) ---
+    var template = List[Int]()
     var seed: Int = 42
     for _ in range(size):
         seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF
-        arr.append(seed)
+        template.append(seed)
 
-    # --- Timed section ---
-    var _bench_start = perf_counter_ns()
+    # --- Benchmarked workload ---
+    fn workload() capturing:
+        # Copy template so each iteration sorts fresh unsorted data
+        var arr = List[Int]()
+        for i in range(size):
+            arr.append(template[i])
+        quicksort(arr, 0, size - 1)
+        keep(arr)
 
-    quicksort(arr, 0, size - 1)
-
-    var _bench_elapsed = perf_counter_ns() - _bench_start
-
-    # Prevent dead code elimination
-    if arr[0] == -1:
-        print("unreachable")
-
-    # Report timing to harness
-    print("MOJOMARK_NS", _bench_elapsed)
+    var report = benchmark.run[workload](2, 1_000_000_000, 0.1, 2)
+    print("MOJOMARK_NS", Int(report.mean("ns")))

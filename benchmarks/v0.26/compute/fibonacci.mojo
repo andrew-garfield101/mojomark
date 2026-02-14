@@ -2,11 +2,12 @@
 Category: compute
 Measures: Function call overhead, recursion optimization, integer arithmetic.
 
-Timing is measured inside Mojo via perf_counter_ns() so that only the hot
-loop is captured — process-spawn and linker overhead are excluded.
+Uses Mojo's stdlib benchmark module for statistically rigorous timing with
+adaptive batching and compiler anti-optimization barriers (keep).
 """
 
-from time import perf_counter_ns
+import benchmark
+from benchmark import keep, black_box
 
 
 fn fibonacci(n: Int) -> Int:
@@ -15,20 +16,12 @@ fn fibonacci(n: Int) -> Int:
     return fibonacci(n - 1) + fibonacci(n - 2)
 
 
-fn main():
-    # Timed section — only the computational work
-    var _bench_start = perf_counter_ns()
+fn main() raises:
+    fn workload() capturing:
+        var sink: Int = 0
+        for _ in range(10):
+            sink += fibonacci(black_box(35))
+        keep(sink)
 
-    var sink: Int = 0
-    for _ in range(10):
-        var r = fibonacci(35)
-        sink += r
-
-    var _bench_elapsed = perf_counter_ns() - _bench_start
-
-    # Prevent dead code elimination
-    if sink == -1:
-        print("unreachable")
-
-    # Report timing to harness
-    print("MOJOMARK_NS", _bench_elapsed)
+    var report = benchmark.run[workload](2, 1_000_000_000, 0.1, 2)
+    print("MOJOMARK_NS", Int(report.mean("ns")))

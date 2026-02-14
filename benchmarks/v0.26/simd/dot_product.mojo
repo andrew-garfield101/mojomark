@@ -2,14 +2,18 @@
 Category: simd
 Measures: Multiply-accumulate throughput, SIMD vectorization potential, memory bandwidth.
 
-Setup (vector allocation and filling) is excluded from the timing.
-Only the dot-product computation rounds are measured.
+Setup (vector allocation and filling) happens once before benchmarking.
+The workload captures the vectors and computes the dot product (read-only).
+
+Uses Mojo's stdlib benchmark module for statistically rigorous timing with
+adaptive batching and compiler anti-optimization barriers (keep).
 """
 
-from time import perf_counter_ns
+import benchmark
+from benchmark import keep
 
 
-fn main():
+fn main() raises:
     var size = 1000000
     var rounds = 5
 
@@ -23,21 +27,15 @@ fn main():
         a.append(seed)
         b.append(seed * 0.7 + 1.0)
 
-    # --- Timed section ---
-    var _bench_start = perf_counter_ns()
+    # --- Benchmarked workload ---
+    fn workload() capturing:
+        var checksum: Float64 = 0.0
+        for _ in range(rounds):
+            var dot: Float64 = 0.0
+            for i in range(size):
+                dot += a[i] * b[i]
+            checksum += dot
+        keep(checksum)
 
-    var checksum: Float64 = 0.0
-    for _ in range(rounds):
-        var dot: Float64 = 0.0
-        for i in range(size):
-            dot += a[i] * b[i]
-        checksum += dot
-
-    var _bench_elapsed = perf_counter_ns() - _bench_start
-
-    # Prevent dead code elimination
-    if checksum == -1.0:
-        print("unreachable")
-
-    # Report timing to harness
-    print("MOJOMARK_NS", _bench_elapsed)
+    var report = benchmark.run[workload](2, 1_000_000_000, 0.1, 2)
+    print("MOJOMARK_NS", Int(report.mean("ns")))

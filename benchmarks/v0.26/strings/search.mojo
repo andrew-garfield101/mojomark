@@ -2,17 +2,22 @@
 Category: strings
 Measures: String/byte traversal, comparison, search algorithm throughput.
 
-Setup (building the haystack string and defining needles) is excluded from the
-timing.  Only the sliding-window search loops are measured.
+Setup (building the haystack string and defining needles) happens once before
+benchmarking.  The workload captures the byte spans and performs sliding-window
+search (read-only).
 
 Uses byte-level comparison via as_bytes() — the modern Mojo String API treats
 strings as UTF-8 and no longer supports direct integer indexing.
+
+Uses Mojo's stdlib benchmark module for statistically rigorous timing with
+adaptive batching and compiler anti-optimization barriers (keep).
 """
 
-from time import perf_counter_ns
+import benchmark
+from benchmark import keep
 
 
-fn main():
+fn main() raises:
     var haystack_len = 100000
 
     # --- Setup (not timed) ---
@@ -35,49 +40,44 @@ fn main():
 
     var h_len = len(h_bytes)
 
-    # --- Timed section ---
-    var _bench_start = perf_counter_ns()
+    # --- Benchmarked workload ---
+    fn workload() capturing:
+        var total_matches: Int = 0
 
-    var total_matches: Int = 0
+        # Short needle search
+        var ns = len(ns_bytes)
+        for i in range(h_len - ns + 1):
+            var found = True
+            for j in range(ns):
+                if h_bytes[i + j] != ns_bytes[j]:
+                    found = False
+                    break
+            if found:
+                total_matches += 1
 
-    # Short needle search
-    var ns = len(ns_bytes)
-    for i in range(h_len - ns + 1):
-        var found = True
-        for j in range(ns):
-            if h_bytes[i + j] != ns_bytes[j]:
-                found = False
-                break
-        if found:
-            total_matches += 1
+        # Medium needle search
+        var nm = len(nm_bytes)
+        for i in range(h_len - nm + 1):
+            var found = True
+            for j in range(nm):
+                if h_bytes[i + j] != nm_bytes[j]:
+                    found = False
+                    break
+            if found:
+                total_matches += 1
 
-    # Medium needle search
-    var nm = len(nm_bytes)
-    for i in range(h_len - nm + 1):
-        var found = True
-        for j in range(nm):
-            if h_bytes[i + j] != nm_bytes[j]:
-                found = False
-                break
-        if found:
-            total_matches += 1
+        # Long needle search
+        var nl = len(nl_bytes)
+        for i in range(h_len - nl + 1):
+            var found = True
+            for j in range(nl):
+                if h_bytes[i + j] != nl_bytes[j]:
+                    found = False
+                    break
+            if found:
+                total_matches += 1
 
-    # Long needle search
-    var nl = len(nl_bytes)
-    for i in range(h_len - nl + 1):
-        var found = True
-        for j in range(nl):
-            if h_bytes[i + j] != nl_bytes[j]:
-                found = False
-                break
-        if found:
-            total_matches += 1
+        keep(total_matches)
 
-    var _bench_elapsed = perf_counter_ns() - _bench_start
-
-    # Prevent dead code elimination
-    if total_matches == -1:
-        print("unreachable")
-
-    # Report timing to harness
-    print("MOJOMARK_NS", _bench_elapsed)
+    var report = benchmark.run[workload](2, 1_000_000_000, 0.1, 2)
+    print("MOJOMARK_NS", Int(report.mean("ns")))

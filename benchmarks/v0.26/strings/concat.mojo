@@ -2,34 +2,33 @@
 Category: strings
 Measures: String builder efficiency, memory allocation for growing strings.
 
-The entire workload (building strings through concatenation) is the thing
-we are measuring, so the full body is timed.
+The entire workload (building strings through concatenation) is what we are
+measuring, so there is no separate setup phase.
+
+Uses Mojo's stdlib benchmark module for statistically rigorous timing with
+adaptive batching and compiler anti-optimization barriers (keep).
 """
 
-from time import perf_counter_ns
+import benchmark
+from benchmark import keep
 
 
-fn main():
-    var iterations = 50000
+fn main() raises:
+    fn workload() capturing:
+        var iterations = 50000
 
-    # --- Timed section ---
-    var _bench_start = perf_counter_ns()
+        # Build a long string through repeated concatenation
+        var result: String = ""
+        for i in range(iterations):
+            result += "x"
 
-    # Build a long string through repeated concatenation
-    var result: String = ""
-    for i in range(iterations):
-        result += "x"
+        # Also test string conversion from integers
+        var numeric_str: String = ""
+        for i in range(iterations):
+            numeric_str = String(i)
 
-    # Also test string conversion from integers
-    var numeric_str: String = ""
-    for i in range(iterations):
-        numeric_str = String(i)
+        keep(result)
+        keep(numeric_str)
 
-    var _bench_elapsed = perf_counter_ns() - _bench_start
-
-    # Prevent dead code elimination
-    if len(result) == 0 or len(numeric_str) == 0:
-        print("unreachable")
-
-    # Report timing to harness
-    print("MOJOMARK_NS", _bench_elapsed)
+    var report = benchmark.run[workload](2, 1_000_000_000, 0.1, 2)
+    print("MOJOMARK_NS", Int(report.mean("ns")))
