@@ -52,7 +52,7 @@ def run(category: str | None, samples: int, warmup: int):
     console.print(f"  Samples: {samples} | Warmup: {warmup}")
     console.print()
 
-    benchmarks = discover_benchmarks(category=category, mojo_version=mojo_version)
+    benchmarks = discover_benchmarks(category=category)
     if not benchmarks:
         console.print("[yellow]No benchmarks found.[/yellow]")
         return
@@ -70,6 +70,7 @@ def run(category: str | None, samples: int, warmup: int):
                     category=bench_category,
                     samples=samples,
                     warmup=warmup,
+                    mojo_version=mojo_version,
                 )
                 results.append(result)
             except RuntimeError as e:
@@ -79,7 +80,6 @@ def run(category: str | None, samples: int, warmup: int):
         console.print("[red]All benchmarks failed.[/red]")
         return
 
-    # Display results table
     table = Table(title="Benchmark Results", show_lines=False)
     table.add_column("Category", style="dim", no_wrap=True)
     table.add_column("Benchmark", style="bold", no_wrap=True)
@@ -102,7 +102,6 @@ def run(category: str | None, samples: int, warmup: int):
 
     console.print(table)
 
-    # Save results
     filepath = save_results(results, mojo_version)
     console.print(f"\n[dim]Results saved → {filepath}[/dim]")
 
@@ -145,7 +144,6 @@ def compare(base_version: str, target_version: str):
     )
     console.print()
 
-    # Find result files for each version
     base_file = find_results_for_version(base_version)
     if base_file is None:
         console.print(f"[red]No results found for Mojo {base_version}[/red]")
@@ -166,7 +164,6 @@ def compare(base_version: str, target_version: str):
         console.print("[yellow]No matching benchmarks found between the two runs.[/yellow]")
         return
 
-    # Build comparison table
     table = Table(
         title=f"Comparison: Mojo {base_version} -> {target_version}",
         show_lines=False,
@@ -179,7 +176,6 @@ def compare(base_version: str, target_version: str):
     table.add_column("Status", justify="center", no_wrap=True)
 
     for d in diffs:
-        # Color the delta based on direction
         if d.delta_pct <= -5:
             delta_str = f"[bold green]{d.delta_pct:+.1f}%[/bold green]"
         elif d.delta_pct < 3:
@@ -200,7 +196,6 @@ def compare(base_version: str, target_version: str):
 
     console.print(table)
 
-    # Print summary
     summary = summarize_diffs(diffs)
     parts = []
     if summary[Status.IMPROVED]:
@@ -293,7 +288,6 @@ def report(
     generated: list[Path] = []
 
     if compare_versions:
-        # --- Comparison report ---
         base_ver, target_ver = compare_versions
 
         base_file = find_results_for_version(base_ver)
@@ -332,7 +326,6 @@ def report(
             generated.append(path)
 
     else:
-        # --- Single run report ---
         if version:
             result_file = find_results_for_version(version)
             if result_file is None:
@@ -361,7 +354,6 @@ def report(
             path = save_report(html, f"{timestamp}_mojo-{mojo_ver}.html", reports_dir)
             generated.append(path)
 
-    # Print summary
     console.print("[bold cyan]mojomark[/bold cyan] — Report generated")
     for path in generated:
         console.print(f"  [green]✓[/green] {path}")
@@ -384,18 +376,15 @@ def status():
     """Show current Mojo version, latest available, and stored baselines."""
     console.print("[bold cyan]mojomark[/bold cyan] — Status\n")
 
-    # Machine info
     machine = get_machine_info()
     console.print(f"  Machine:  [bold]{format_machine_summary(machine)}[/bold]")
 
-    # Installed version
     installed = get_mojo_version()
     if installed == "unknown":
         console.print("  Installed Mojo:  [red]not found[/red]")
     else:
         console.print(f"  Installed Mojo:  [bold]{installed}[/bold]")
 
-    # Latest available
     with console.status("[dim]Checking latest version...[/dim]"):
         latest = get_latest_available_version()
     if latest:
@@ -406,12 +395,10 @@ def status():
     else:
         console.print("  Latest stable:   [dim]could not check[/dim]")
 
-    # Cached versions
     cached = list_cached_versions()
     if cached:
         console.print(f"\n  Cached installs:  {', '.join(cached)}")
 
-    # Stored results
     result_files = list_result_files()
     if result_files:
         console.print("\n  Stored baselines:")
@@ -424,7 +411,6 @@ def status():
     else:
         console.print("\n  [dim]No stored baselines. Run 'mojomark run' to create one.[/dim]")
 
-    # Upgrade hint
     if latest and installed != "unknown" and installed != latest:
         console.print(
             f"\n  [dim]Upgrade:[/dim] "
@@ -478,7 +464,6 @@ def versions():
 
     console.print(f"\n  [bold]{len(available)}[/bold] published release(s):\n")
 
-    # Display in rows of 5 with markers
     row: list[str] = []
     for v in available:
         label = v
@@ -529,7 +514,6 @@ def _run_benchmarks_with_version(
 
     mojo_binary = get_mojo_binary(version, on_progress=progress)
 
-    # Verify the version matches
     actual = get_mojo_version(mojo_binary)
     console.print(f"  Mojo {actual} ready\n")
 
@@ -545,6 +529,7 @@ def _run_benchmarks_with_version(
                     samples=samples,
                     warmup=warmup,
                     mojo_binary=mojo_binary,
+                    mojo_version=version,
                 )
                 results.append(result)
                 console.print(f"    [green]✓[/green] {label:30s} {format_time(result.mean_ns)}")
@@ -642,7 +627,6 @@ def regression(
 
         mojomark regression 0.7.0 0.26.1 --category compute --samples 20
     """
-    # Resolve aliases like "current" and "latest"
     try:
         base_version = resolve_version_alias(base_version)
         target_version = resolve_version_alias(target_version)
@@ -666,23 +650,17 @@ def regression(
     console.print(f"  Samples:  {samples} | Warmup: {warmup}")
     console.print()
 
-    # Discover benchmarks per-version (each version gets its own syntax set)
-    base_benchmarks = discover_benchmarks(category=category, mojo_version=base_version)
-    target_benchmarks = discover_benchmarks(category=category, mojo_version=target_version)
+    benchmarks = discover_benchmarks(category=category)
 
-    if not base_benchmarks and not target_benchmarks:
+    if not benchmarks:
         console.print("[yellow]No benchmarks found.[/yellow]")
         return
 
-    console.print(
-        f"  Benchmarks: {len(base_benchmarks)} for {base_version}, "
-        f"{len(target_benchmarks)} for {target_version}\n"
-    )
+    console.print(f"  Benchmarks: {len(benchmarks)} templates\n")
 
-    # --- Phase 1: Benchmark base version ---
     console.rule(f"[bold]Phase 1 — Mojo {base_version}[/bold]")
     try:
-        base_results = _run_benchmarks_with_version(base_version, base_benchmarks, samples, warmup)
+        base_results = _run_benchmarks_with_version(base_version, benchmarks, samples, warmup)
     except RuntimeError as e:
         console.print(f"\n[red]Failed to set up Mojo {base_version}:[/red] {e}")
         return
@@ -694,13 +672,10 @@ def regression(
     base_path = save_results(base_results, base_version)
     console.print(f"\n  [dim]Saved → {base_path}[/dim]")
 
-    # --- Phase 2: Benchmark target version ---
     console.print()
     console.rule(f"[bold]Phase 2 — Mojo {target_version}[/bold]")
     try:
-        target_results = _run_benchmarks_with_version(
-            target_version, target_benchmarks, samples, warmup
-        )
+        target_results = _run_benchmarks_with_version(target_version, benchmarks, samples, warmup)
     except RuntimeError as e:
         console.print(f"\n[red]Failed to set up Mojo {target_version}:[/red] {e}")
         return
@@ -712,7 +687,6 @@ def regression(
     target_path = save_results(target_results, target_version)
     console.print(f"\n  [dim]Saved → {target_path}[/dim]")
 
-    # --- Phase 3: Compare ---
     console.print()
     console.rule("[bold]Regression Report[/bold]")
 
@@ -726,7 +700,6 @@ def regression(
 
     _print_comparison_table(base_version, target_version, diffs)
 
-    # --- Phase 4: Generate reports ---
     if fmt != "none":
         from mojomark.report import REPORTS_DIR
 

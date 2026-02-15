@@ -80,7 +80,6 @@ def generate_single_run_markdown(result_data: dict) -> str:
     lines.append(f"**Benchmarks:** {len(benchmarks)}")
     lines.append("")
 
-    # Results table
     lines.append("## Results")
     lines.append("")
     lines.append("| Category | Benchmark | Mean | Median | Min | Max | Std Dev | Samples |")
@@ -132,7 +131,6 @@ def generate_comparison_markdown(
     lines.append(f"**Target version:** {target_ver}")
     lines.append("")
 
-    # Summary
     summary = summarize_diffs(diffs)
     summary_parts = []
     if summary[Status.IMPROVED]:
@@ -149,7 +147,6 @@ def generate_comparison_markdown(
     lines.append(" | ".join(summary_parts))
     lines.append("")
 
-    # Comparison table
     lines.append("## Benchmark Comparison")
     lines.append("")
     lines.append(f"| Category | Benchmark | {base_ver} | {target_ver} | Delta | Status |")
@@ -167,7 +164,6 @@ def generate_comparison_markdown(
 
     lines.append("")
 
-    # Threshold legend
     lines.append("### Thresholds")
     lines.append("")
     lines.append("| Indicator | Meaning |")
@@ -329,7 +325,6 @@ def generate_single_run_html(result_data: dict) -> str:
         f"</div>"
     )
 
-    # Summary cards
     categories = set(b["category"] for b in benchmarks)
     parts.append('<div class="summary">')
     parts.append(
@@ -351,7 +346,6 @@ def generate_single_run_html(result_data: dict) -> str:
         )
     parts.append("</div>")
 
-    # Results table
     parts.append("<h2>Results</h2>")
     parts.append("<table>")
     parts.append(
@@ -414,7 +408,6 @@ def generate_comparison_html(
         f"</div>"
     )
 
-    # Summary cards
     parts.append('<div class="summary">')
     card_data = [
         (summary[Status.IMPROVED], "Improved", "var(--green)"),
@@ -430,7 +423,6 @@ def generate_comparison_html(
         )
     parts.append("</div>")
 
-    # Comparison table
     parts.append("<h2>Benchmark Comparison</h2>")
     parts.append("<table>")
     parts.append(

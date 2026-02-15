@@ -73,7 +73,6 @@ def install_mojo_version(version: str, on_progress=None) -> Path:
     """
     venv_path = _venv_dir(version)
 
-    # Return cached if already installed
     existing = _find_mojo_in_venv(venv_path) if venv_path.exists() else None
     if existing:
         if on_progress:
@@ -83,11 +82,9 @@ def install_mojo_version(version: str, on_progress=None) -> Path:
     if on_progress:
         on_progress(f"Creating isolated environment for Mojo {version}...")
 
-    # Create a fresh venv
     venv_path.parent.mkdir(parents=True, exist_ok=True)
     venv.create(str(venv_path), with_pip=True, clear=True)
 
-    # Find pip inside the venv
     pip_path = venv_path / "bin" / "pip"
     if not pip_path.exists():
         pip_path = venv_path / "Scripts" / "pip.exe"
@@ -95,7 +92,6 @@ def install_mojo_version(version: str, on_progress=None) -> Path:
     if on_progress:
         on_progress(f"Installing Mojo {version}...")
 
-    # Install mojo into the venv
     result = subprocess.run(
         [
             str(pip_path),
@@ -111,12 +107,10 @@ def install_mojo_version(version: str, on_progress=None) -> Path:
     )
 
     if result.returncode != 0:
-        # Clean up failed install
         import shutil
 
         shutil.rmtree(venv_path, ignore_errors=True)
 
-        # Try to suggest available versions
         hint = ""
         available = list_available_versions()
         if available:
@@ -181,7 +175,6 @@ def get_mojo_binary(version: str, on_progress=None) -> Path:
     Returns:
         Path to the mojo binary.
     """
-    # 1. Check venv cache first (cheapest check — no subprocess)
     venv_path = _venv_dir(version)
     existing = _find_mojo_in_venv(venv_path) if venv_path.exists() else None
     if existing:
@@ -189,14 +182,12 @@ def get_mojo_binary(version: str, on_progress=None) -> Path:
             on_progress(f"Mojo {version} already cached")
         return existing
 
-    # 2. Check if the system mojo matches
     system_binary = _system_mojo_matches(version)
     if system_binary is not None:
         if on_progress:
             on_progress(f"Using system Mojo {version} ({system_binary})")
         return system_binary
 
-    # 3. Install from the package index
     return install_mojo_version(version, on_progress=on_progress)
 
 
@@ -238,7 +229,6 @@ def list_available_versions() -> list[str] | None:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
             releases = data.get("releases", {})
-            # Only include versions that have actual distribution files
             versions = [v for v, files in releases.items() if files]
             return sorted(versions, key=_version_key, reverse=True)
     except Exception:

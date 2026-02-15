@@ -1,4 +1,8 @@
-"""Benchmark runner — discovers, compiles, and executes Mojo benchmarks."""
+"""Benchmark runner — discovers, compiles, and executes Mojo benchmarks.
+
+Templates are rendered into version-specific ``.mojo`` files by the
+``codegen`` module before compilation.
+"""
 
 import logging
 import subprocess
@@ -9,69 +13,9 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# Marker printed by instrumented Mojo benchmarks (see benchmarks/*.mojo).
-# Format: "MOJOMARK_NS <elapsed_nanoseconds>"
 TIMING_MARKER = "MOJOMARK_NS"
 
 BENCHMARKS_DIR = Path(__file__).parent.parent.parent / "benchmarks"
-
-
-def _parse_version_tuple(version_str: str) -> tuple[int, ...]:
-    """Parse a version string like ``'0.7.0'`` into a comparable tuple."""
-    parts: list[int] = []
-    for part in version_str.split("."):
-        try:
-            parts.append(int(part))
-        except ValueError:
-            parts.append(0)
-    return tuple(parts)
-
-
-def find_benchmark_set(
-    mojo_version: str,
-    benchmarks_dir: Path = BENCHMARKS_DIR,
-) -> Path:
-    """Find the best benchmark set for a given Mojo version.
-
-    Scans *benchmarks_dir* for versioned subdirectories (``v0.7/``, ``v0.26/``,
-    etc.) and returns the one whose version tag is the highest that does not
-    exceed *mojo_version*.
-
-    Falls back to *benchmarks_dir* itself if no versioned subdirs exist (e.g.
-    in test fixtures).
-
-    Args:
-        mojo_version: Target Mojo version string.
-        benchmarks_dir: Root benchmarks directory.
-
-    Returns:
-        Path to the selected benchmark set directory.
-    """
-    target = _parse_version_tuple(mojo_version)
-
-    # Collect versioned subdirectories
-    candidates: list[tuple[tuple[int, ...], Path]] = []
-    if benchmarks_dir.exists():
-        for child in benchmarks_dir.iterdir():
-            if child.is_dir() and child.name.startswith("v"):
-                ver_str = child.name[1:]  # strip the leading 'v'
-                ver_tuple = _parse_version_tuple(ver_str)
-                candidates.append((ver_tuple, child))
-
-    if not candidates:
-        # No versioned subdirs — fall back to flat layout (tests, etc.)
-        return benchmarks_dir
-
-    # Sort by version (ascending) and pick the highest one <= target
-    candidates.sort(key=lambda c: c[0])
-    best = candidates[0][1]  # default to lowest if nothing matches
-    for ver_tuple, path in candidates:
-        if ver_tuple <= target:
-            best = path
-        else:
-            break
-
-    return best
 
 
 @dataclass
@@ -129,35 +73,25 @@ class BenchmarkResult:
 
 
 def discover_benchmarks(
-    benchmarks_dir: Path = BENCHMARKS_DIR,
+    benchmarks_dir: Path | None = None,
     category: str | None = None,
-    mojo_version: str | None = None,
 ) -> list[tuple[str, str, Path]]:
-    """Discover all .mojo benchmark files.
+    """Discover benchmark templates.
 
-    When *mojo_version* is provided, the best matching version-specific
-    benchmark set is selected automatically (e.g. ``v0.7/`` or ``v0.26/``).
+    Scans the ``benchmarks/templates/`` directory for ``.mojo`` template
+    files.  Each template is version-neutral; the codegen module renders
+    them into version-specific source at compile time.
+
+    Args:
+        benchmarks_dir: Override the templates directory (useful for tests).
+        category: If given, only return templates in this category.
 
     Returns:
         List of (name, category, path) tuples.
     """
-    if mojo_version:
-        benchmarks_dir = find_benchmark_set(mojo_version, benchmarks_dir)
+    from mojomark.codegen import TEMPLATES_DIR, discover_templates
 
-    benchmarks = []
-    if not benchmarks_dir.exists():
-        return benchmarks
-
-    for mojo_file in sorted(benchmarks_dir.rglob("*.mojo")):
-        bench_category = mojo_file.parent.name
-        bench_name = mojo_file.stem
-
-        if category and bench_category != category:
-            continue
-
-        benchmarks.append((bench_name, bench_category, mojo_file))
-
-    return benchmarks
+    return discover_templates(benchmarks_dir or TEMPLATES_DIR, category)
 
 
 def get_mojo_version(mojo_binary: Path | None = None) -> str:
@@ -174,7 +108,6 @@ def get_mojo_version(mojo_binary: Path | None = None) -> str:
             text=True,
             timeout=10,
         )
-        # Output format: "mojo 0.7.0 (af002202)"
         parts = result.stdout.strip().split()
         if len(parts) >= 2:
             return parts[1]
@@ -278,16 +211,22 @@ def run_benchmark(
     samples: int = 10,
     warmup: int = 3,
     mojo_binary: Path | None = None,
+    mojo_version: str | None = None,
 ) -> BenchmarkResult:
     """Compile and run a single benchmark, collecting timing samples.
 
+    When *mojo_version* is provided the *mojo_file* is treated as a
+    **template**: it is rendered into version-specific ``.mojo`` source
+    before compilation.  Without a version, the file is compiled directly.
+
     Args:
-        mojo_file: Path to the .mojo benchmark file.
+        mojo_file: Path to the .mojo benchmark (or template) file.
         name: Benchmark name.
         category: Benchmark category.
         samples: Number of timed executions.
         warmup: Number of warmup executions (not timed).
         mojo_binary: Path to a specific mojo binary. If None, uses PATH.
+        mojo_version: Target Mojo version for template rendering.
 
     Returns:
         BenchmarkResult with timing data.
@@ -295,13 +234,20 @@ def run_benchmark(
     result = BenchmarkResult(name=name, category=category)
 
     with tempfile.TemporaryDirectory(prefix="mojomark_") as tmpdir:
-        binary_path = compile_benchmark(mojo_file, Path(tmpdir), mojo_binary=mojo_binary)
+        tmpdir_path = Path(tmpdir)
 
-        # Warmup runs — let OS caches and CPU settle
+        if mojo_version:
+            from mojomark.codegen import render_to_file
+
+            actual_mojo_file = render_to_file(mojo_file, tmpdir_path, mojo_version)
+        else:
+            actual_mojo_file = mojo_file
+
+        binary_path = compile_benchmark(actual_mojo_file, tmpdir_path, mojo_binary=mojo_binary)
+
         for _ in range(warmup):
             run_binary(binary_path)
 
-        # Timed runs
         for _ in range(samples):
             elapsed_ns = run_binary(binary_path)
             result.samples_ns.append(elapsed_ns)

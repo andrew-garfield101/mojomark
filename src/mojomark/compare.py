@@ -45,11 +45,9 @@ class BenchmarkDiff:
     status: Status
 
 
-# Thresholds for regression detection (percentage change)
-# Positive delta = slower (regression), negative delta = faster (improvement)
-THRESHOLD_STABLE = 3.0  # < 3% change — stable
-THRESHOLD_WARNING = 10.0  # 3-10% slower — warning
-THRESHOLD_IMPROVED = -5.0  # > 5% faster — notable improvement
+THRESHOLD_STABLE = 3.0
+THRESHOLD_WARNING = 10.0
+THRESHOLD_IMPROVED = -5.0
 
 
 def classify_delta(delta_pct: float) -> Status:
@@ -81,7 +79,6 @@ def compare_results(base_data: dict, target_data: dict) -> list[BenchmarkDiff]:
     Returns:
         List of BenchmarkDiff objects, one per matched benchmark.
     """
-    # Index base benchmarks by (category, name)
     base_benchmarks = {(b["category"], b["name"]): b for b in base_data["benchmarks"]}
 
     diffs = []
@@ -98,7 +95,6 @@ def compare_results(base_data: dict, target_data: dict) -> list[BenchmarkDiff]:
         if base_mean == 0:
             continue
 
-        # Positive delta = slower (regression), negative = faster (improvement)
         delta_pct = ((target_mean - base_mean) / base_mean) * 100
 
         diffs.append(

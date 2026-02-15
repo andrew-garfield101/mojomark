@@ -8,14 +8,14 @@ Run standardized benchmarks across Mojo versions, track results over time, and d
 
 ## Why?
 
-As Mojo evolves rapidly, compiler changes can introduce performance regressions (or improvements!) that go unnoticed. `mojomark` provides a repeatable, automated way to measure and compare Mojo's performance across versions — with machine fingerprinting, internal nanosecond timing, and version-specific benchmark sets that account for API changes between releases.
+As Mojo evolves rapidly, compiler changes can introduce performance regressions (or improvements!) that go unnoticed. `mojomark` provides a repeatable, automated way to measure and compare Mojo's performance across versions — with machine fingerprinting, internal nanosecond timing, and a template-based code generation system that produces version-correct benchmarks from a single source of truth.
 
 ## Quick Start
 
 ### Prerequisites
 
 - Python 3.10+
-- Mojo installed (system or pip-managed)
+- Mojo installed (system or pip managed)
 
 ### Install
 
@@ -29,134 +29,99 @@ pip install -e ".[dev]"
 ### Check Your Environment
 
 ```bash
-# See current Mojo version, latest available, and cached installations
 mojomark status
-
-# See all published Mojo versions from the package index
 mojomark versions
 ```
 
 ### Run Benchmarks
 
 ```bash
-# Run all benchmarks against your current Mojo version
 mojomark run
-
-# Run a specific category
 mojomark run --category compute
-
-# Customize sample count and warmup
 mojomark run --samples 20 --warmup 5
 ```
 
 ### Regression Testing
 
 ```bash
-# Compare current installed version against the latest available
 mojomark regression current latest
-
-# Compare two specific versions
 mojomark regression 0.7.0 0.26.1.0
-
-# mojomark will automatically install versions it doesn't have cached
+mojomark regression 0.7.0 0.26.1.0 --category compute --samples 20
 ```
 
-### Compare Stored Results
+### Compare, Report, Manage
 
 ```bash
-# Compare previously stored results for two versions
 mojomark compare 0.7.0 0.26.1.0
-
-# View run history
 mojomark history
-```
-
-### Generate Reports
-
-```bash
-# Generate Markdown + HTML reports from the latest run
 mojomark report
-
-# HTML only
 mojomark report --format html
-
-# Comparison report between two versions
 mojomark report --compare-versions 0.7.0 0.26.1.0
-
-# Custom output directory
-mojomark report -o ./my-reports
-```
-
-### Manage Installations
-
-```bash
-# Remove all cached Mojo installations
 mojomark clean
 ```
 
 ## Benchmark Categories
 
-| Category    | Benchmarks                          | What It Measures                                          |
-|-------------|-------------------------------------|-----------------------------------------------------------|
-| **compute** | fibonacci, matrix_mul, sorting      | CPU-bound algorithms, loop optimization, recursion        |
-| **memory**  | allocation, struct_ops              | Heap allocation, struct creation, field access, ownership |
-| **simd**    | dot_product, mandelbrot, vector_math| Vectorized operations, floating-point throughput          |
-| **strings** | concat, search                      | String building, byte-level traversal, substring search   |
+| Category    | Benchmarks                           | What It Measures                                          |
+|-------------|--------------------------------------|-----------------------------------------------------------|
+| **compute** | fibonacci, matrix_mul, sorting       | CPU-bound algorithms, loop optimization, recursion        |
+| **memory**  | allocation, struct_ops               | Heap allocation, struct creation, field access, ownership |
+| **simd**    | dot_product, mandelbrot, vector_math | Vectorized operations, floating-point throughput          |
+| **strings** | concat, search                       | String building, byte-level traversal, substring search   |
 
 ## How It Works
 
-1. **Version-aware benchmark discovery** — Benchmarks live in version-specific directories (`benchmarks/v0.7/`, `benchmarks/v0.26/`) to account for API changes between Mojo releases. The runner automatically selects the right benchmark set for the target version.
+1. **Template-based code generation** — Each benchmark is a single `.mojo` template in `benchmarks/templates/` with `{{TOKEN}}` markers and `{{#MODERN}}`/`{{#LEGACY}}` conditional blocks. The codegen module renders version-correct source for any Mojo release from a single file — no duplicated benchmarks across versions.
 
-2. **Internal nanosecond timing** — Each `.mojo` benchmark self-times its hot loop using Mojo's native high-resolution timer (`time.now()` or `time.perf_counter_ns()`). Setup code is excluded from measurement. Benchmarks emit a `MOJOMARK_NS` marker that the Python harness parses.
+2. **Version profiles** — Three profiles (`modern` ≥0.26, `transitional` 0.25.x, `legacy` <0.25) define token mappings (`List`↔`DynamicVector`, `append`↔`push_back`, `comptime`↔`alias`, etc.) and select the appropriate timing harness.
 
-3. **Machine fingerprinting** — Every result is tagged with CPU model, core count, RAM, OS, and architecture. This ensures comparisons are only meaningful on the same hardware.
+3. **Dual timing harnesses** — Modern versions use Mojo's stdlib `benchmark.run[]` with `keep()` and `black_box()` for statistically rigorous, anti-optimized measurement. Legacy versions use `time.now()` with dead-code-elimination barriers. Both emit a `MOJOMARK_NS` marker that the Python harness parses.
 
-4. **Automatic version management** — `mojomark` can discover, download, and cache multiple Mojo versions in isolated virtual environments under `~/.mojomark/`. It also detects system-installed Mojo for legacy versions.
+4. **Machine fingerprinting** — Every result is tagged with CPU model, core count, RAM, OS, and architecture to ensure comparisons are only meaningful on the same hardware.
 
-5. **Regression classification** — Deltas are classified as improved (`>>`), stable (`OK`), warning (`!!`), or regression (`XX`) with configurable thresholds.
+5. **Automatic version management** — `mojomark` discovers, downloads, and caches multiple Mojo versions in isolated virtual environments under `~/.mojomark/`. It also detects system-installed Mojo for legacy versions.
 
-6. **Reports** — Generates both Markdown and HTML reports with full statistics (mean, median, min, max, std dev).
+6. **Regression classification** — Deltas are classified as improved (`>>`), stable (`OK`), warning (`!!`), or regression (`XX`) with configurable thresholds.
+
+7. **Reports** — Generates both Markdown and HTML reports with full statistics (mean, median, min, max, std dev).
 
 Python never enters the measurement window — all timing is pure Mojo.
 
 ## CLI Commands
 
-| Command      | Description                                                    |
-|--------------|----------------------------------------------------------------|
-| `run`        | Run benchmarks against the current Mojo version                |
-| `regression` | Full regression assessment between two versions (run + compare)|
-| `compare`    | Compare previously stored results for two versions             |
-| `report`     | Generate Markdown/HTML reports                                 |
-| `status`     | Show current version, latest available, cached installations   |
-| `versions`   | List all published Mojo versions from the package index        |
-| `history`    | Show stored benchmark result files                             |
-| `clean`      | Remove cached Mojo installations from ~/.mojomark              |
+| Command      | Description                                                     |
+|--------------|-----------------------------------------------------------------|
+| `run`        | Run benchmarks against the current Mojo version                 |
+| `regression` | Full regression assessment between two versions (run + compare) |
+| `compare`    | Compare previously stored results for two versions              |
+| `report`     | Generate Markdown/HTML reports                                  |
+| `status`     | Show current version, latest available, cached installations    |
+| `versions`   | List all published Mojo versions from the package index         |
+| `history`    | Show stored benchmark result files                              |
+| `list`       | List available benchmark templates                              |
+| `clean`      | Remove cached Mojo installations from ~/.mojomark               |
 
 ## Project Structure
 
 ```
 mojomark/
-├── src/mojomark/          # Python CLI harness
+├── src/mojomark/
 │   ├── cli.py             # Click-based CLI commands
-│   ├── runner.py           # Benchmark discovery, compilation, execution
-│   ├── compare.py          # Result diffing and regression classification
-│   ├── report.py           # Markdown and HTML report generation
-│   ├── storage.py          # JSON result persistence
-│   ├── machine.py          # Hardware/OS fingerprinting
-│   └── versions.py         # Mojo version management and caching
+│   ├── codegen.py         # Template rendering and version profiles
+│   ├── runner.py          # Benchmark discovery, compilation, execution
+│   ├── compare.py         # Result diffing and regression classification
+│   ├── report.py          # Markdown and HTML report generation
+│   ├── storage.py         # JSON result persistence
+│   ├── machine.py         # Hardware/OS fingerprinting
+│   └── versions.py        # Mojo version management and caching
 ├── benchmarks/
-│   ├── v0.7/              # Benchmarks for Mojo ≤0.7.x (DynamicVector, etc.)
-│   │   ├── compute/
-│   │   ├── memory/
-│   │   ├── simd/
-│   │   └── strings/
-│   └── v0.26/             # Benchmarks for Mojo ≥0.26.x (List, comptime, etc.)
-│       ├── compute/
-│       ├── memory/
-│       ├── simd/
-│       └── strings/
+│   └── templates/         # Version-neutral benchmark templates
+│       ├── compute/       # fibonacci, matrix_mul, sorting
+│       ├── memory/        # allocation, struct_ops
+│       ├── simd/          # dot_product, mandelbrot, vector_math
+│       └── strings/       # concat, search
 ├── results/               # Stored benchmark results (git-ignored)
-├── reports/               # Generated comparison reports (git-ignored)
+├── reports/               # Generated reports (git-ignored)
 └── tests/                 # Python test suite
 ```
 
@@ -173,15 +138,19 @@ mojomark — Regression Assessment
 ┏━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┓
 ┃ Category ┃ Benchmark   ┃    0.7.0 ┃ 0.26.1.0 ┃  Delta ┃ Status ┃
 ┡━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━┩
-│ compute  │ fibonacci   │  27.2 ms │  27.9 ms │  +2.4% │   OK   │
-│ memory   │ allocation  │   1.8 ms │   1.2 ms │ -33.6% │   >>   │
-│ memory   │ struct_ops  │ 143.1 us │  95.6 us │ -33.2% │   >>   │
-│ simd     │ vector_math │   1.6 ms │   1.1 ms │ -33.1% │   >>   │
-│ strings  │ concat      │ 421.2 ms │ 792.0 us │ -99.8% │   >>   │
-│ strings  │ search      │  36.5 ms │ 278.9 us │ -99.2% │   >>   │
+│ compute  │ fibonacci   │  22.5 ms │  22.4 ms │  -0.2% │   OK   │
+│ compute  │ matrix_mul  │ 851.6 us │ 835.1 us │  -1.9% │   OK   │
+│ compute  │ sorting     │   2.7 ms │   2.9 ms │  +7.5% │   !!   │
+│ memory   │ allocation  │   1.9 ms │   1.0 ms │ -45.8% │   >>   │
+│ memory   │ struct_ops  │ 149.3 us │  98.6 us │ -34.0% │   >>   │
+│ simd     │ dot_product │   6.9 ms │   6.4 ms │  -8.1% │   >>   │
+│ simd     │ mandelbrot  │  22.9 ms │  18.5 ms │ -19.1% │   >>   │
+│ simd     │ vector_math │   1.4 ms │ 971.2 us │ -32.8% │   >>   │
+│ strings  │ concat      │ 419.7 ms │ 680.3 us │ -99.8% │   >>   │
+│ strings  │ search      │  37.1 ms │ 244.3 us │ -99.3% │   >>   │
 └──────────┴─────────────┴──────────┴──────────┴────────┴────────┘
 
-  Summary: 5 improved, 1 stable, 3 warning, 1 regression
+  Summary: 7 improved, 2 stable, 1 warning
 ```
 
 ## License
