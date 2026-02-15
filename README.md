@@ -26,6 +26,30 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+### Configure (Optional)
+
+```bash
+mojomark init
+```
+
+This creates a `mojomark.toml` in your project with default settings. Edit it to customize benchmark parameters and regression thresholds:
+
+```toml
+[benchmark]
+samples = 10
+warmup = 3
+
+[thresholds]
+stable = 3.0       # |delta| < 3%  →  OK
+warning = 10.0     # delta >= 10%  →  XX REGRESSION
+improved = -5.0    # delta <= -5%  →  >> improved
+
+[report]
+format = "both"    # markdown | html | both | none
+```
+
+CLI flags always override config file values.
+
 ### Check Your Environment
 
 ```bash
@@ -47,7 +71,10 @@ mojomark run --samples 20 --warmup 5
 mojomark regression current latest
 mojomark regression 0.7.0 0.26.1.0
 mojomark regression 0.7.0 0.26.1.0 --category compute --samples 20
+mojomark regression current latest --threshold-stable 5.0 --threshold-warning 15.0
 ```
+
+The `regression` command exits with code 1 if any regressions are detected, making it suitable for CI pipelines.
 
 ### Compare, Report, Manage
 
@@ -99,6 +126,7 @@ Python never enters the measurement window — all timing is pure Mojo.
 | `versions`   | List all published Mojo versions from the package index         |
 | `history`    | Show stored benchmark result files                              |
 | `list`       | List available benchmark templates                              |
+| `init`       | Create a default `mojomark.toml` configuration file             |
 | `clean`      | Remove cached Mojo installations from ~/.mojomark               |
 
 ## Project Structure
@@ -107,6 +135,7 @@ Python never enters the measurement window — all timing is pure Mojo.
 mojomark/
 ├── src/mojomark/
 │   ├── cli.py             # Click-based CLI commands
+│   ├── config.py          # Configuration loading (mojomark.toml)
 │   ├── codegen.py         # Template rendering and version profiles
 │   ├── runner.py          # Benchmark discovery, compilation, execution
 │   ├── compare.py         # Result diffing and regression classification
@@ -151,6 +180,10 @@ mojomark — Regression Assessment
 └──────────┴─────────────┴──────────┴──────────┴────────┴────────┘
 
   Summary: 7 improved, 2 stable, 1 warning
+
+  PASS: No regressions detected
+
+  Thresholds: >> >5% faster | OK <3% change | !! 3-10% slower | XX >10% slower
 ```
 
 ## License
