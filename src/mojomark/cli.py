@@ -1,10 +1,19 @@
 """mojomark CLI — Mojo Performance Regression Detector."""
 
+import sys
+
 import click
 from rich.console import Console
 from rich.table import Table
 
-from mojomark.compare import Status, compare_results, summarize_diffs
+from mojomark.compare import Status, Thresholds, compare_results, summarize_diffs
+from mojomark.config import (
+    CONFIG_FILENAME,
+    DEFAULT_CONFIG_TEMPLATE,
+    MojomarkConfig,
+    load_config,
+    merge_cli_overrides,
+)
 from mojomark.machine import format_machine_summary, get_machine_info
 from mojomark.report import (
     format_time,
@@ -33,6 +42,28 @@ from mojomark.versions import (
 console = Console()
 
 
+def _load_cfg() -> MojomarkConfig:
+    """Load the project config, printing a note if a file is found."""
+    cfg = load_config()
+    if cfg.config_path:
+        console.print(f"  [dim]Config: {cfg.config_path}[/dim]")
+    return cfg
+
+
+def _thresholds_from_cfg(cfg: MojomarkConfig) -> Thresholds:
+    """Build a Thresholds object from the merged config."""
+    return Thresholds(
+        stable=cfg.threshold_stable,
+        warning=cfg.threshold_warning,
+        improved=cfg.threshold_improved,
+    )
+
+
+# ---------------------------------------------------------------------------
+# CLI group
+# ---------------------------------------------------------------------------
+
+
 @click.group()
 @click.version_option(package_name="mojomark")
 def main():
@@ -40,16 +71,56 @@ def main():
     pass
 
 
+# ---------------------------------------------------------------------------
+# init command
+# ---------------------------------------------------------------------------
+
+
+@main.command()
+@click.option("--force", is_flag=True, help="Overwrite existing config file.")
+def init(force: bool):
+    """Create a default mojomark.toml configuration file.
+
+    Generates a commented config file in the current directory with
+    all available settings and their default values.
+
+    Examples:
+
+        mojomark init
+
+        mojomark init --force
+    """
+    from pathlib import Path
+
+    target = Path.cwd() / CONFIG_FILENAME
+    if target.exists() and not force:
+        console.print(f"[yellow]{CONFIG_FILENAME} already exists.[/yellow]")
+        console.print("[dim]Use --force to overwrite.[/dim]")
+        return
+
+    target.write_text(DEFAULT_CONFIG_TEMPLATE)
+    console.print(f"[green]✓[/green] Created {CONFIG_FILENAME}")
+    console.print("[dim]Edit the file to customize benchmark settings and thresholds.[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# run command
+# ---------------------------------------------------------------------------
+
+
 @main.command()
 @click.option("--category", "-c", default=None, help="Run only benchmarks in this category.")
-@click.option("--samples", "-s", default=10, help="Number of timed samples per benchmark.")
-@click.option("--warmup", "-w", default=3, help="Number of warmup runs per benchmark.")
-def run(category: str | None, samples: int, warmup: int):
+@click.option("--samples", "-s", default=None, type=int, help="Number of timed samples.")
+@click.option("--warmup", "-w", default=None, type=int, help="Number of warmup runs.")
+def run(category: str | None, samples: int | None, warmup: int | None):
     """Run benchmarks against the current Mojo version."""
+    cfg = _load_cfg()
+    merge_cli_overrides(cfg, samples=samples, warmup=warmup)
+
     mojo_version = get_mojo_version()
     console.print("[bold cyan]mojomark[/bold cyan] — Mojo Performance Regression Detector")
     console.print(f"  Mojo version: [bold]{mojo_version}[/bold]")
-    console.print(f"  Samples: {samples} | Warmup: {warmup}")
+    console.print(f"  Samples: {cfg.samples} | Warmup: {cfg.warmup}")
     console.print()
 
     benchmarks = discover_benchmarks(category=category)
@@ -68,8 +139,8 @@ def run(category: str | None, samples: int, warmup: int):
                     mojo_file=mojo_file,
                     name=name,
                     category=bench_category,
-                    samples=samples,
-                    warmup=warmup,
+                    samples=cfg.samples,
+                    warmup=cfg.warmup,
                     mojo_version=mojo_version,
                 )
                 results.append(result)
@@ -106,6 +177,11 @@ def run(category: str | None, samples: int, warmup: int):
     console.print(f"\n[dim]Results saved → {filepath}[/dim]")
 
 
+# ---------------------------------------------------------------------------
+# list command
+# ---------------------------------------------------------------------------
+
+
 @main.command(name="list")
 @click.option("--category", "-c", default=None, help="Filter by category.")
 def list_benchmarks(category: str | None):
@@ -126,18 +202,70 @@ def list_benchmarks(category: str | None):
     console.print(table)
 
 
+# ---------------------------------------------------------------------------
+# compare command
+# ---------------------------------------------------------------------------
+
+_threshold_options = [
+    click.option(
+        "--threshold-stable",
+        type=float,
+        default=None,
+        help="Max |delta|%% for STABLE (default: from config or 3.0).",
+    ),
+    click.option(
+        "--threshold-warning",
+        type=float,
+        default=None,
+        help="Min delta%% for REGRESSION (default: from config or 10.0).",
+    ),
+    click.option(
+        "--threshold-improved",
+        type=float,
+        default=None,
+        help="Max delta%% for IMPROVED (default: from config or -5.0).",
+    ),
+]
+
+
+def _add_threshold_options(func):
+    """Apply shared threshold CLI options to a command."""
+    for option in reversed(_threshold_options):
+        func = option(func)
+    return func
+
+
 @main.command()
 @click.argument("base_version")
 @click.argument("target_version")
-def compare(base_version: str, target_version: str):
+@_add_threshold_options
+def compare(
+    base_version: str,
+    target_version: str,
+    threshold_stable: float | None,
+    threshold_warning: float | None,
+    threshold_improved: float | None,
+):
     """Compare benchmark results between two Mojo versions.
 
     BASE_VERSION is the older/reference version.
     TARGET_VERSION is the newer version to evaluate.
 
     Examples:
+
         mojomark compare 0.7.0 0.8.0
+
+        mojomark compare 0.7.0 0.8.0 --threshold-stable 5.0
     """
+    cfg = _load_cfg()
+    merge_cli_overrides(
+        cfg,
+        threshold_stable=threshold_stable,
+        threshold_warning=threshold_warning,
+        threshold_improved=threshold_improved,
+    )
+    thresholds = _thresholds_from_cfg(cfg)
+
     console.print(
         f"[bold cyan]mojomark[/bold cyan] — Comparing "
         f"[bold]{base_version}[/bold] -> [bold]{target_version}[/bold]"
@@ -159,59 +287,17 @@ def compare(base_version: str, target_version: str):
     base_data = load_results(base_file)
     target_data = load_results(target_file)
 
-    diffs = compare_results(base_data, target_data)
+    diffs = compare_results(base_data, target_data, thresholds=thresholds)
     if not diffs:
         console.print("[yellow]No matching benchmarks found between the two runs.[/yellow]")
         return
 
-    table = Table(
-        title=f"Comparison: Mojo {base_version} -> {target_version}",
-        show_lines=False,
-    )
-    table.add_column("Category", style="dim", no_wrap=True)
-    table.add_column("Benchmark", style="bold", no_wrap=True)
-    table.add_column(base_version, justify="right", no_wrap=True)
-    table.add_column(target_version, justify="right", no_wrap=True)
-    table.add_column("Delta", justify="right", no_wrap=True)
-    table.add_column("Status", justify="center", no_wrap=True)
+    _print_comparison_table(base_version, target_version, diffs, thresholds)
 
-    for d in diffs:
-        if d.delta_pct <= -5:
-            delta_str = f"[bold green]{d.delta_pct:+.1f}%[/bold green]"
-        elif d.delta_pct < 3:
-            delta_str = f"[green]{d.delta_pct:+.1f}%[/green]"
-        elif d.delta_pct < 10:
-            delta_str = f"[yellow]{d.delta_pct:+.1f}%[/yellow]"
-        else:
-            delta_str = f"[bold red]{d.delta_pct:+.1f}%[/bold red]"
 
-        table.add_row(
-            d.category,
-            d.name,
-            format_time(d.base_mean_ns),
-            format_time(d.target_mean_ns),
-            delta_str,
-            d.status.indicator,
-        )
-
-    console.print(table)
-
-    summary = summarize_diffs(diffs)
-    parts = []
-    if summary[Status.IMPROVED]:
-        parts.append(f"[bold green]{summary[Status.IMPROVED]} improved[/bold green]")
-    if summary[Status.STABLE]:
-        parts.append(f"[green]{summary[Status.STABLE]} stable[/green]")
-    if summary[Status.WARNING]:
-        parts.append(f"[yellow]{summary[Status.WARNING]} warning[/yellow]")
-    if summary[Status.REGRESSION]:
-        parts.append(f"[bold red]{summary[Status.REGRESSION]} regression[/bold red]")
-
-    console.print(f"\n  Summary: {', '.join(parts)}")
-    console.print(
-        "\n  [dim]Thresholds: "
-        ">> >5% faster | OK <3% change | !! 3-10% slower | XX >10% slower[/dim]"
-    )
+# ---------------------------------------------------------------------------
+# history command
+# ---------------------------------------------------------------------------
 
 
 @main.command()
@@ -241,14 +327,19 @@ def history():
     console.print(table)
 
 
+# ---------------------------------------------------------------------------
+# report command
+# ---------------------------------------------------------------------------
+
+
 @main.command()
 @click.option(
     "--format",
     "-f",
     "fmt",
     type=click.Choice(["markdown", "html", "both"]),
-    default="both",
-    help="Output format (default: both).",
+    default=None,
+    help="Output format (default: from config or both).",
 )
 @click.option("--version", "-v", "version", default=None, help="Mojo version to report on.")
 @click.option(
@@ -260,7 +351,7 @@ def history():
 )
 @click.option("--output", "-o", "output_dir", default=None, help="Custom output directory.")
 def report(
-    fmt: str,
+    fmt: str | None,
     version: str | None,
     compare_versions: tuple[str, str] | None,
     output_dir: str | None,
@@ -284,7 +375,11 @@ def report(
 
     from mojomark.report import REPORTS_DIR
 
-    reports_dir = Path(output_dir) if output_dir else REPORTS_DIR
+    cfg = _load_cfg()
+    merge_cli_overrides(cfg, fmt=fmt, output_dir=output_dir)
+
+    report_fmt = cfg.report_format
+    reports_dir = Path(cfg.report_output_dir) if cfg.report_output_dir else REPORTS_DIR
     generated: list[Path] = []
 
     if compare_versions:
@@ -312,13 +407,13 @@ def report(
 
         timestamp = _report_timestamp()
 
-        if fmt in ("markdown", "both"):
+        if report_fmt in ("markdown", "both"):
             md = generate_comparison_markdown(base_data, target_data, diffs)
             fname = f"{timestamp}_compare_{base_ver}_vs_{target_ver}.md"
             path = save_report(md, fname, reports_dir)
             generated.append(path)
 
-        if fmt in ("html", "both"):
+        if report_fmt in ("html", "both"):
             html = generate_comparison_html(base_data, target_data, diffs)
             path = save_report(
                 html, f"{timestamp}_compare_{base_ver}_vs_{target_ver}.html", reports_dir
@@ -338,18 +433,18 @@ def report(
                 console.print("[yellow]No stored results found.[/yellow]")
                 console.print("[dim]Run 'mojomark run' first to generate results.[/dim]")
                 return
-            result_file = result_files[0]  # Most recent
+            result_file = result_files[0]
 
         result_data = load_results(result_file)
         mojo_ver = result_data["mojo_version"]
         timestamp = _report_timestamp()
 
-        if fmt in ("markdown", "both"):
+        if report_fmt in ("markdown", "both"):
             md = generate_single_run_markdown(result_data)
             path = save_report(md, f"{timestamp}_mojo-{mojo_ver}.md", reports_dir)
             generated.append(path)
 
-        if fmt in ("html", "both"):
+        if report_fmt in ("html", "both"):
             html = generate_single_run_html(result_data)
             path = save_report(html, f"{timestamp}_mojo-{mojo_ver}.html", reports_dir)
             generated.append(path)
@@ -367,7 +462,7 @@ def _report_timestamp() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Status command
+# status command
 # ---------------------------------------------------------------------------
 
 
@@ -375,6 +470,10 @@ def _report_timestamp() -> str:
 def status():
     """Show current Mojo version, latest available, and stored baselines."""
     console.print("[bold cyan]mojomark[/bold cyan] — Status\n")
+
+    cfg = load_config()
+    if cfg.config_path:
+        console.print(f"  Config:   [dim]{cfg.config_path}[/dim]")
 
     machine = get_machine_info()
     console.print(f"  Machine:  [bold]{format_machine_summary(machine)}[/bold]")
@@ -421,7 +520,7 @@ def status():
 
 
 # ---------------------------------------------------------------------------
-# Versions command
+# versions command
 # ---------------------------------------------------------------------------
 
 
@@ -492,7 +591,7 @@ def versions():
 
 
 # ---------------------------------------------------------------------------
-# Regression command (run --compare)
+# regression command
 # ---------------------------------------------------------------------------
 
 
@@ -539,7 +638,7 @@ def _run_benchmarks_with_version(
     return results
 
 
-def _print_comparison_table(base_ver, target_ver, diffs):
+def _print_comparison_table(base_ver, target_ver, diffs, thresholds=None):
     """Print a Rich comparison table and summary."""
     table = Table(
         title=f"Regression Report: Mojo {base_ver} → {target_ver}",
@@ -552,15 +651,17 @@ def _print_comparison_table(base_ver, target_ver, diffs):
     table.add_column("Delta", justify="right", no_wrap=True)
     table.add_column("Status", justify="center", no_wrap=True)
 
+    t = thresholds or Thresholds()
+
     for d in diffs:
-        if d.delta_pct <= -5:
+        if d.delta_pct <= t.improved:
             delta_str = f"[bold green]{d.delta_pct:+.1f}%[/bold green]"
-        elif d.delta_pct < 3:
+        elif abs(d.delta_pct) < t.stable:
             delta_str = f"[green]{d.delta_pct:+.1f}%[/green]"
-        elif d.delta_pct < 10:
-            delta_str = f"[yellow]{d.delta_pct:+.1f}%[/yellow]"
-        else:
+        elif d.delta_pct >= t.warning:
             delta_str = f"[bold red]{d.delta_pct:+.1f}%[/bold red]"
+        else:
+            delta_str = f"[yellow]{d.delta_pct:+.1f}%[/yellow]"
 
         table.add_row(
             d.category,
@@ -587,28 +688,50 @@ def _print_comparison_table(base_ver, target_ver, diffs):
 
     console.print(f"\n  Summary: {', '.join(parts)}")
 
+    has_regressions = summary[Status.REGRESSION] > 0
+    if has_regressions:
+        console.print(
+            f"\n  [bold red]FAIL: {summary[Status.REGRESSION]} regression(s) detected[/bold red]"
+        )
+    else:
+        console.print("\n  [bold green]PASS: No regressions detected[/bold green]")
+
+    console.print(
+        f"\n  [dim]Thresholds: "
+        f">> >{abs(t.improved):.0f}% faster | "
+        f"OK <{t.stable:.0f}% change | "
+        f"!! {t.stable:.0f}-{t.warning:.0f}% slower | "
+        f"XX >{t.warning:.0f}% slower[/dim]"
+    )
+
+    return has_regressions
+
 
 @main.command()
 @click.argument("base_version", metavar="BASE")
 @click.argument("target_version", metavar="TARGET")
 @click.option("--category", "-c", default=None, help="Run only benchmarks in this category.")
-@click.option("--samples", "-s", default=10, help="Number of timed samples per benchmark.")
-@click.option("--warmup", "-w", default=3, help="Number of warmup runs per benchmark.")
+@click.option("--samples", "-s", default=None, type=int, help="Number of timed samples.")
+@click.option("--warmup", "-w", default=None, type=int, help="Number of warmup runs.")
 @click.option(
     "--format",
     "-f",
     "fmt",
     type=click.Choice(["markdown", "html", "both", "none"]),
-    default="both",
-    help="Report format (default: both).",
+    default=None,
+    help="Report format (default: from config or both).",
 )
+@_add_threshold_options
 def regression(
     base_version: str,
     target_version: str,
     category: str | None,
-    samples: int,
-    warmup: int,
-    fmt: str,
+    samples: int | None,
+    warmup: int | None,
+    fmt: str | None,
+    threshold_stable: float | None,
+    threshold_warning: float | None,
+    threshold_improved: float | None,
 ):
     """Run a full regression assessment between two Mojo versions.
 
@@ -619,14 +742,31 @@ def regression(
     ``latest`` (newest release on the package index) instead of explicit
     version numbers.
 
+    Exits with code 1 if any regressions are detected, making this
+    command suitable for CI pipelines.
+
     Examples:
 
         mojomark regression current latest
 
         mojomark regression 0.7.0 0.26.1
 
+        mojomark regression 0.7.0 0.26.1 --threshold-stable 5.0
+
         mojomark regression 0.7.0 0.26.1 --category compute --samples 20
     """
+    cfg = _load_cfg()
+    merge_cli_overrides(
+        cfg,
+        samples=samples,
+        warmup=warmup,
+        fmt=fmt,
+        threshold_stable=threshold_stable,
+        threshold_warning=threshold_warning,
+        threshold_improved=threshold_improved,
+    )
+    thresholds = _thresholds_from_cfg(cfg)
+
     try:
         base_version = resolve_version_alias(base_version)
         target_version = resolve_version_alias(target_version)
@@ -647,7 +787,7 @@ def regression(
     console.print(f"  Machine:  {format_machine_summary(machine)}")
     console.print(f"  Base:     Mojo {base_version}")
     console.print(f"  Target:   Mojo {target_version}")
-    console.print(f"  Samples:  {samples} | Warmup: {warmup}")
+    console.print(f"  Samples:  {cfg.samples} | Warmup: {cfg.warmup}")
     console.print()
 
     benchmarks = discover_benchmarks(category=category)
@@ -660,7 +800,9 @@ def regression(
 
     console.rule(f"[bold]Phase 1 — Mojo {base_version}[/bold]")
     try:
-        base_results = _run_benchmarks_with_version(base_version, benchmarks, samples, warmup)
+        base_results = _run_benchmarks_with_version(
+            base_version, benchmarks, cfg.samples, cfg.warmup
+        )
     except RuntimeError as e:
         console.print(f"\n[red]Failed to set up Mojo {base_version}:[/red] {e}")
         return
@@ -675,7 +817,9 @@ def regression(
     console.print()
     console.rule(f"[bold]Phase 2 — Mojo {target_version}[/bold]")
     try:
-        target_results = _run_benchmarks_with_version(target_version, benchmarks, samples, warmup)
+        target_results = _run_benchmarks_with_version(
+            target_version, benchmarks, cfg.samples, cfg.warmup
+        )
     except RuntimeError as e:
         console.print(f"\n[red]Failed to set up Mojo {target_version}:[/red] {e}")
         return
@@ -693,38 +837,43 @@ def regression(
     base_data = load_results(base_path)
     target_data = load_results(target_path)
 
-    diffs = compare_results(base_data, target_data)
+    diffs = compare_results(base_data, target_data, thresholds=thresholds)
     if not diffs:
         console.print("[yellow]No matching benchmarks to compare.[/yellow]")
         return
 
-    _print_comparison_table(base_version, target_version, diffs)
+    has_regressions = _print_comparison_table(base_version, target_version, diffs, thresholds)
 
-    if fmt != "none":
+    report_fmt = cfg.report_format
+    if report_fmt != "none":
         from mojomark.report import REPORTS_DIR
 
+        reports_dir = REPORTS_DIR
         timestamp = _report_timestamp()
         generated = []
 
-        if fmt in ("markdown", "both"):
+        if report_fmt in ("markdown", "both"):
             md = generate_comparison_markdown(base_data, target_data, diffs)
             fname = f"{timestamp}_regression_{base_version}_vs_{target_version}.md"
-            path = save_report(md, fname, REPORTS_DIR)
+            path = save_report(md, fname, reports_dir)
             generated.append(path)
 
-        if fmt in ("html", "both"):
+        if report_fmt in ("html", "both"):
             html = generate_comparison_html(base_data, target_data, diffs)
             fname = f"{timestamp}_regression_{base_version}_vs_{target_version}.html"
-            path = save_report(html, fname, REPORTS_DIR)
+            path = save_report(html, fname, reports_dir)
             generated.append(path)
 
         console.print()
         for path in generated:
             console.print(f"  [green]✓[/green] {path}")
 
+    if has_regressions:
+        sys.exit(1)
+
 
 # ---------------------------------------------------------------------------
-# Clean command
+# clean command
 # ---------------------------------------------------------------------------
 
 

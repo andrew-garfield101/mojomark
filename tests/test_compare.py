@@ -5,6 +5,7 @@ import pytest
 from mojomark.compare import (
     BenchmarkDiff,
     Status,
+    Thresholds,
     classify_delta,
     compare_results,
     summarize_diffs,
@@ -33,6 +34,46 @@ from mojomark.compare import (
 )
 def test_classify_delta(delta_pct, expected):
     assert classify_delta(delta_pct) == expected
+
+
+# ---------------------------------------------------------------------------
+# classify_delta with custom thresholds
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyDeltaCustomThresholds:
+    def test_tight_thresholds(self):
+        tight = Thresholds(stable=1.0, warning=5.0, improved=-2.0)
+        assert classify_delta(-2.0, tight) == Status.IMPROVED
+        assert classify_delta(-1.5, tight) == Status.WARNING
+        assert classify_delta(0.5, tight) == Status.STABLE
+        assert classify_delta(3.0, tight) == Status.WARNING
+        assert classify_delta(5.0, tight) == Status.REGRESSION
+
+    def test_loose_thresholds(self):
+        loose = Thresholds(stable=10.0, warning=25.0, improved=-15.0)
+        assert classify_delta(-20.0, loose) == Status.IMPROVED
+        assert classify_delta(-10.0, loose) == Status.WARNING
+        assert classify_delta(5.0, loose) == Status.STABLE
+        assert classify_delta(15.0, loose) == Status.WARNING
+        assert classify_delta(30.0, loose) == Status.REGRESSION
+
+    def test_compare_results_with_custom_thresholds(self):
+        base = _make_run("0.7.0", [("fib", "compute", 100)])
+        target = _make_run("0.8.0", [("fib", "compute", 105)])
+
+        default_diffs = compare_results(base, target)
+        assert default_diffs[0].status == Status.WARNING
+
+        tight = Thresholds(stable=1.0, warning=3.0, improved=-2.0)
+        tight_diffs = compare_results(base, target, thresholds=tight)
+        assert tight_diffs[0].status == Status.REGRESSION
+
+    def test_thresholds_defaults(self):
+        t = Thresholds()
+        assert t.stable == 3.0
+        assert t.warning == 10.0
+        assert t.improved == -5.0
 
 
 # ---------------------------------------------------------------------------

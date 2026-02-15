@@ -45,36 +45,59 @@ class BenchmarkDiff:
     status: Status
 
 
-THRESHOLD_STABLE = 3.0
-THRESHOLD_WARNING = 10.0
-THRESHOLD_IMPROVED = -5.0
+DEFAULT_THRESHOLD_STABLE = 3.0
+DEFAULT_THRESHOLD_WARNING = 10.0
+DEFAULT_THRESHOLD_IMPROVED = -5.0
 
 
-def classify_delta(delta_pct: float) -> Status:
+@dataclass
+class Thresholds:
+    """Regression classification boundaries (percentage change).
+
+    Positive delta = slower, negative = faster.
+    """
+
+    stable: float = DEFAULT_THRESHOLD_STABLE
+    warning: float = DEFAULT_THRESHOLD_WARNING
+    improved: float = DEFAULT_THRESHOLD_IMPROVED
+
+
+def classify_delta(
+    delta_pct: float,
+    thresholds: Thresholds | None = None,
+) -> Status:
     """Classify a percentage change into a regression status.
 
     Args:
         delta_pct: Percentage change (positive = slower, negative = faster).
+        thresholds: Classification boundaries. Uses defaults if None.
 
     Returns:
         Status classification.
     """
-    if delta_pct <= THRESHOLD_IMPROVED:
+    t = thresholds or Thresholds()
+
+    if delta_pct <= t.improved:
         return Status.IMPROVED
-    elif abs(delta_pct) < THRESHOLD_STABLE:
+    elif abs(delta_pct) < t.stable:
         return Status.STABLE
-    elif delta_pct >= THRESHOLD_WARNING:
+    elif delta_pct >= t.warning:
         return Status.REGRESSION
     else:
         return Status.WARNING
 
 
-def compare_results(base_data: dict, target_data: dict) -> list[BenchmarkDiff]:
+def compare_results(
+    base_data: dict,
+    target_data: dict,
+    thresholds: Thresholds | None = None,
+) -> list[BenchmarkDiff]:
     """Compare benchmark results between two runs.
 
     Args:
         base_data: The baseline result data (older version).
         target_data: The target result data (newer version).
+        thresholds: Classification boundaries. Uses defaults if None.
 
     Returns:
         List of BenchmarkDiff objects, one per matched benchmark.
@@ -104,7 +127,7 @@ def compare_results(base_data: dict, target_data: dict) -> list[BenchmarkDiff]:
                 base_mean_ns=base_mean,
                 target_mean_ns=target_mean,
                 delta_pct=delta_pct,
-                status=classify_delta(delta_pct),
+                status=classify_delta(delta_pct, thresholds),
             )
         )
 
