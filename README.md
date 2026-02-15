@@ -53,8 +53,9 @@ CLI flags always override config file values.
 ### Check Your Environment
 
 ```bash
-mojomark status
-mojomark versions
+mojomark doctor     # verify all dependencies and environment
+mojomark status     # Mojo version, baselines, cached installs
+mojomark versions   # all published Mojo releases
 ```
 
 ### Run Benchmarks
@@ -74,7 +75,7 @@ mojomark regression 0.7.0 0.26.1.0 --category compute --samples 20
 mojomark regression current latest --threshold-stable 5.0 --threshold-warning 15.0
 ```
 
-The `regression` command exits with code 1 if any regressions are detected, making it suitable for CI pipelines.
+Both `regression` and `compare` exit with code 1 if any regressions are detected, making them suitable for CI pipelines.
 
 ### Compare, Report, Manage
 
@@ -85,6 +86,30 @@ mojomark report
 mojomark report --format html
 mojomark report --compare-versions 0.7.0 0.26.1.0
 mojomark clean
+```
+
+### Output Control
+
+Every command supports `--quiet` and `--verbose` flags:
+
+```bash
+mojomark --quiet regression current latest     # tables and verdicts only
+mojomark --verbose run                          # extra diagnostic output
+mojomark -q compare 0.7.0 0.26.1.0             # short form
+```
+
+### Shell Completion
+
+Enable tab-completion for Zsh (add to `.zshrc` for persistence):
+
+```bash
+eval "$(_MOJOMARK_COMPLETE=zsh_source mojomark)"
+```
+
+For Bash:
+
+```bash
+eval "$(_MOJOMARK_COMPLETE=bash_source mojomark)"
 ```
 
 ## Benchmark Categories
@@ -122,6 +147,7 @@ Python never enters the measurement window — all timing is pure Mojo.
 | `regression` | Full regression assessment between two versions (run + compare) |
 | `compare`    | Compare previously stored results for two versions              |
 | `report`     | Generate Markdown/HTML reports                                  |
+| `doctor`     | Check system requirements and diagnose common issues            |
 | `status`     | Show current version, latest available, cached installations    |
 | `versions`   | List all published Mojo versions from the package index         |
 | `history`    | Show stored benchmark result files                              |
