@@ -4,6 +4,7 @@ import sys
 
 import click
 from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 from rich.table import Table
 
 from mojomark.compare import Status, Thresholds, compare_results, summarize_diffs
@@ -41,12 +42,30 @@ from mojomark.versions import (
 
 console = Console()
 
+VERBOSITY_QUIET = 0
+VERBOSITY_NORMAL = 1
+VERBOSITY_VERBOSE = 2
+
+_verbosity: int = VERBOSITY_NORMAL
+
+
+def _info(msg: str) -> None:
+    """Print a message at normal verbosity or above."""
+    if _verbosity >= VERBOSITY_NORMAL:
+        console.print(msg)
+
+
+def _detail(msg: str) -> None:
+    """Print a message only in verbose mode."""
+    if _verbosity >= VERBOSITY_VERBOSE:
+        console.print(msg)
+
 
 def _load_cfg() -> MojomarkConfig:
     """Load the project config, printing a note if a file is found."""
     cfg = load_config()
     if cfg.config_path:
-        console.print(f"  [dim]Config: {cfg.config_path}[/dim]")
+        _detail(f"  [dim]Config: {cfg.config_path}[/dim]")
     return cfg
 
 
@@ -59,6 +78,18 @@ def _thresholds_from_cfg(cfg: MojomarkConfig) -> Thresholds:
     )
 
 
+def _make_progress() -> Progress:
+    """Create a Rich progress bar for benchmark runs."""
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+        transient=True,
+    )
+
+
 # ---------------------------------------------------------------------------
 # CLI group
 # ---------------------------------------------------------------------------
@@ -66,9 +97,21 @@ def _thresholds_from_cfg(cfg: MojomarkConfig) -> Thresholds:
 
 @click.group()
 @click.version_option(package_name="mojomark")
-def main():
+@click.option("--quiet", "-q", is_flag=True, help="Minimal output — tables and verdicts only.")
+@click.option("--verbose", "-V", is_flag=True, help="Extra diagnostic output.")
+@click.pass_context
+def main(ctx: click.Context, quiet: bool, verbose: bool):
     """mojomark — Mojo Performance Regression Detector."""
-    pass
+    global _verbosity
+    if quiet:
+        _verbosity = VERBOSITY_QUIET
+    elif verbose:
+        _verbosity = VERBOSITY_VERBOSE
+    else:
+        _verbosity = VERBOSITY_NORMAL
+
+    ctx.ensure_object(dict)
+    ctx.obj["verbosity"] = _verbosity
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +143,7 @@ def init(force: bool):
 
     target.write_text(DEFAULT_CONFIG_TEMPLATE)
     console.print(f"[green]✓[/green] Created {CONFIG_FILENAME}")
-    console.print("[dim]Edit the file to customize benchmark settings and thresholds.[/dim]")
+    _info("[dim]Edit the file to customize benchmark settings and thresholds.[/dim]")
 
 
 # ---------------------------------------------------------------------------
@@ -118,22 +161,42 @@ def run(category: str | None, samples: int | None, warmup: int | None):
     merge_cli_overrides(cfg, samples=samples, warmup=warmup)
 
     mojo_version = get_mojo_version()
-    console.print("[bold cyan]mojomark[/bold cyan] — Mojo Performance Regression Detector")
-    console.print(f"  Mojo version: [bold]{mojo_version}[/bold]")
-    console.print(f"  Samples: {cfg.samples} | Warmup: {cfg.warmup}")
-    console.print()
+    _info("[bold cyan]mojomark[/bold cyan] — Mojo Performance Regression Detector")
+    _info(f"  Mojo version: [bold]{mojo_version}[/bold]")
+    _info(f"  Samples: {cfg.samples} | Warmup: {cfg.warmup}")
+    _info("")
 
     benchmarks = discover_benchmarks(category=category)
     if not benchmarks:
         console.print("[yellow]No benchmarks found.[/yellow]")
         return
 
-    console.print(f"Running {len(benchmarks)} benchmark(s)...\n")
+    _info(f"Running {len(benchmarks)} benchmark(s)...\n")
 
     results = []
-    for name, bench_category, mojo_file in benchmarks:
-        label = f"{bench_category}/{name}"
-        with console.status(f"[bold green]Running {label}...[/bold green]"):
+    if _verbosity >= VERBOSITY_NORMAL:
+        with _make_progress() as progress:
+            task = progress.add_task("Starting...", total=len(benchmarks))
+            for name, bench_category, mojo_file in benchmarks:
+                label = f"{bench_category}/{name}"
+                progress.update(task, description=f"Running {label}")
+                try:
+                    result = run_benchmark(
+                        mojo_file=mojo_file,
+                        name=name,
+                        category=bench_category,
+                        samples=cfg.samples,
+                        warmup=cfg.warmup,
+                        mojo_version=mojo_version,
+                    )
+                    results.append(result)
+                    _detail(f"    [green]✓[/green] {label:30s} {format_time(result.mean_ns)}")
+                except RuntimeError as e:
+                    progress.console.print(f"  [red]FAILED:[/red] {label} — {e}")
+                progress.advance(task)
+    else:
+        for name, bench_category, mojo_file in benchmarks:
+            label = f"{bench_category}/{name}"
             try:
                 result = run_benchmark(
                     mojo_file=mojo_file,
@@ -174,7 +237,7 @@ def run(category: str | None, samples: int | None, warmup: int | None):
     console.print(table)
 
     filepath = save_results(results, mojo_version)
-    console.print(f"\n[dim]Results saved → {filepath}[/dim]")
+    _info(f"\n[dim]Results saved → {filepath}[/dim]")
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +314,8 @@ def compare(
     BASE_VERSION is the older/reference version.
     TARGET_VERSION is the newer version to evaluate.
 
+    Exits with code 1 if any regressions are detected.
+
     Examples:
 
         mojomark compare 0.7.0 0.8.0
@@ -266,11 +331,11 @@ def compare(
     )
     thresholds = _thresholds_from_cfg(cfg)
 
-    console.print(
+    _info(
         f"[bold cyan]mojomark[/bold cyan] — Comparing "
         f"[bold]{base_version}[/bold] -> [bold]{target_version}[/bold]"
     )
-    console.print()
+    _info("")
 
     base_file = find_results_for_version(base_version)
     if base_file is None:
@@ -292,7 +357,10 @@ def compare(
         console.print("[yellow]No matching benchmarks found between the two runs.[/yellow]")
         return
 
-    _print_comparison_table(base_version, target_version, diffs, thresholds)
+    has_regressions = _print_comparison_table(base_version, target_version, diffs, thresholds)
+
+    if has_regressions:
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -591,6 +659,104 @@ def versions():
 
 
 # ---------------------------------------------------------------------------
+# doctor command
+# ---------------------------------------------------------------------------
+
+
+@main.command()
+def doctor():
+    """Check system requirements and diagnose common issues.
+
+    Verifies that all dependencies are available and the mojomark
+    environment is correctly configured.
+
+    Examples:
+
+        mojomark doctor
+    """
+    import platform
+    import shutil
+
+    console.print("[bold cyan]mojomark[/bold cyan] — Doctor\n")
+    checks_passed = 0
+    checks_failed = 0
+
+    def _pass(msg: str) -> None:
+        nonlocal checks_passed
+        console.print(f"  [green]✓[/green] {msg}")
+        checks_passed += 1
+
+    def _fail(msg: str, hint: str = "") -> None:
+        nonlocal checks_failed
+        console.print(f"  [red]✗[/red] {msg}")
+        if hint:
+            console.print(f"    [dim]{hint}[/dim]")
+        checks_failed += 1
+
+    py_version = platform.python_version()
+    py_tuple = tuple(int(x) for x in py_version.split(".")[:2])
+    if py_tuple >= (3, 10):
+        _pass(f"Python {py_version}")
+    else:
+        _fail(f"Python {py_version}", "Python 3.10+ is required.")
+
+    mojo_path = shutil.which("mojo")
+    if mojo_path:
+        version = get_mojo_version()
+        _pass(f"Mojo {version} ({mojo_path})")
+    else:
+        _fail("Mojo not found on PATH", "Install Mojo: pip install mojo")
+
+    cfg = load_config()
+    if cfg.config_path:
+        _pass(f"Config: {cfg.config_path}")
+    else:
+        _pass(f"Config: using defaults (no {CONFIG_FILENAME} found)")
+
+    benchmarks = discover_benchmarks()
+    if benchmarks:
+        categories = len({b[1] for b in benchmarks})
+        _pass(f"Benchmarks: {len(benchmarks)} templates in {categories} categories")
+    else:
+        _fail("No benchmark templates found", "Check benchmarks/templates/ directory.")
+
+    from mojomark.storage import RESULTS_DIR
+
+    try:
+        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+        test_file = RESULTS_DIR / ".doctor_test"
+        test_file.write_text("ok")
+        test_file.unlink()
+        _pass(f"Results dir: {RESULTS_DIR}")
+    except OSError as e:
+        _fail(f"Results dir not writable: {e}")
+
+    with console.status("[dim]Checking network...[/dim]"):
+        latest = get_latest_available_version()
+    if latest:
+        _pass(f"Network: PyPI reachable (latest Mojo: {latest})")
+    else:
+        _fail("Network: could not reach PyPI", "Check your internet connection.")
+
+    console.print()
+    if checks_failed == 0:
+        console.print(
+            f"  [bold green]All {checks_passed} checks passed.[/bold green] "
+            "mojomark is ready to go."
+        )
+    else:
+        console.print(
+            f"  [bold yellow]{checks_passed} passed, {checks_failed} failed.[/bold yellow]"
+        )
+
+    console.print(
+        "\n  [dim]Shell completion: "
+        'eval "$(_MOJOMARK_COMPLETE=zsh_source mojomark)"[/dim]'
+        "\n  [dim]Add this to your .zshrc for persistent tab-completion.[/dim]"
+    )
+
+
+# ---------------------------------------------------------------------------
 # regression command
 # ---------------------------------------------------------------------------
 
@@ -609,17 +775,40 @@ def _run_benchmarks_with_version(
     """
 
     def progress(msg):
-        console.print(f"  [dim]{msg}[/dim]")
+        _info(f"  [dim]{msg}[/dim]")
 
     mojo_binary = get_mojo_binary(version, on_progress=progress)
 
     actual = get_mojo_version(mojo_binary)
-    console.print(f"  Mojo {actual} ready\n")
+    _info(f"  Mojo {actual} ready\n")
 
     results = []
-    for name, bench_category, mojo_file in benchmarks:
-        label = f"{bench_category}/{name}"
-        with console.status(f"  [bold green]Running {label}...[/bold green]"):
+    if _verbosity >= VERBOSITY_NORMAL:
+        with _make_progress() as prog:
+            task = prog.add_task("Starting...", total=len(benchmarks))
+            for name, bench_category, mojo_file in benchmarks:
+                label = f"{bench_category}/{name}"
+                prog.update(task, description=f"Running {label}")
+                try:
+                    result = run_benchmark(
+                        mojo_file=mojo_file,
+                        name=name,
+                        category=bench_category,
+                        samples=samples,
+                        warmup=warmup,
+                        mojo_binary=mojo_binary,
+                        mojo_version=version,
+                    )
+                    results.append(result)
+                    prog.console.print(
+                        f"    [green]✓[/green] {label:30s} {format_time(result.mean_ns)}"
+                    )
+                except RuntimeError as e:
+                    prog.console.print(f"    [red]✗[/red] {label:30s} FAILED — {e}")
+                prog.advance(task)
+    else:
+        for name, bench_category, mojo_file in benchmarks:
+            label = f"{bench_category}/{name}"
             try:
                 result = run_benchmark(
                     mojo_file=mojo_file,
@@ -631,7 +820,6 @@ def _run_benchmarks_with_version(
                     mojo_version=version,
                 )
                 results.append(result)
-                console.print(f"    [green]✓[/green] {label:30s} {format_time(result.mean_ns)}")
             except RuntimeError as e:
                 console.print(f"    [red]✗[/red] {label:30s} FAILED — {e}")
 
@@ -639,7 +827,11 @@ def _run_benchmarks_with_version(
 
 
 def _print_comparison_table(base_ver, target_ver, diffs, thresholds=None):
-    """Print a Rich comparison table and summary."""
+    """Print a Rich comparison table, summary, and verdict.
+
+    Returns:
+        True if regressions were detected.
+    """
     table = Table(
         title=f"Regression Report: Mojo {base_ver} → {target_ver}",
         show_lines=False,
@@ -696,7 +888,7 @@ def _print_comparison_table(base_ver, target_ver, diffs, thresholds=None):
     else:
         console.print("\n  [bold green]PASS: No regressions detected[/bold green]")
 
-    console.print(
+    _info(
         f"\n  [dim]Thresholds: "
         f">> >{abs(t.improved):.0f}% faster | "
         f"OK <{t.stable:.0f}% change | "
@@ -783,12 +975,12 @@ def regression(
 
     machine = get_machine_info()
 
-    console.print("[bold cyan]mojomark[/bold cyan] — Regression Assessment\n")
-    console.print(f"  Machine:  {format_machine_summary(machine)}")
-    console.print(f"  Base:     Mojo {base_version}")
-    console.print(f"  Target:   Mojo {target_version}")
-    console.print(f"  Samples:  {cfg.samples} | Warmup: {cfg.warmup}")
-    console.print()
+    _info("[bold cyan]mojomark[/bold cyan] — Regression Assessment\n")
+    _info(f"  Machine:  {format_machine_summary(machine)}")
+    _info(f"  Base:     Mojo {base_version}")
+    _info(f"  Target:   Mojo {target_version}")
+    _info(f"  Samples:  {cfg.samples} | Warmup: {cfg.warmup}")
+    _info("")
 
     benchmarks = discover_benchmarks(category=category)
 
@@ -796,9 +988,10 @@ def regression(
         console.print("[yellow]No benchmarks found.[/yellow]")
         return
 
-    console.print(f"  Benchmarks: {len(benchmarks)} templates\n")
+    _info(f"  Benchmarks: {len(benchmarks)} templates\n")
 
-    console.rule(f"[bold]Phase 1 — Mojo {base_version}[/bold]")
+    if _verbosity >= VERBOSITY_NORMAL:
+        console.rule(f"[bold]Phase 1 — Mojo {base_version}[/bold]")
     try:
         base_results = _run_benchmarks_with_version(
             base_version, benchmarks, cfg.samples, cfg.warmup
@@ -812,10 +1005,11 @@ def regression(
         return
 
     base_path = save_results(base_results, base_version)
-    console.print(f"\n  [dim]Saved → {base_path}[/dim]")
+    _info(f"\n  [dim]Saved → {base_path}[/dim]")
 
-    console.print()
-    console.rule(f"[bold]Phase 2 — Mojo {target_version}[/bold]")
+    if _verbosity >= VERBOSITY_NORMAL:
+        console.print()
+        console.rule(f"[bold]Phase 2 — Mojo {target_version}[/bold]")
     try:
         target_results = _run_benchmarks_with_version(
             target_version, benchmarks, cfg.samples, cfg.warmup
@@ -829,10 +1023,11 @@ def regression(
         return
 
     target_path = save_results(target_results, target_version)
-    console.print(f"\n  [dim]Saved → {target_path}[/dim]")
+    _info(f"\n  [dim]Saved → {target_path}[/dim]")
 
-    console.print()
-    console.rule("[bold]Regression Report[/bold]")
+    if _verbosity >= VERBOSITY_NORMAL:
+        console.print()
+        console.rule("[bold]Regression Report[/bold]")
 
     base_data = load_results(base_path)
     target_data = load_results(target_path)
@@ -864,9 +1059,9 @@ def regression(
             path = save_report(html, fname, reports_dir)
             generated.append(path)
 
-        console.print()
+        _info("")
         for path in generated:
-            console.print(f"  [green]✓[/green] {path}")
+            _info(f"  [green]✓[/green] {path}")
 
     if has_regressions:
         sys.exit(1)
