@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 TIMING_MARKER = "MOJOMARK_NS"
 
-BENCHMARKS_DIR = Path(__file__).parent.parent.parent / "benchmarks"
+BENCHMARKS_DIR = Path(__file__).parent / "templates"
 
 
 @dataclass

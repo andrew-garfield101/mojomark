@@ -6,7 +6,7 @@ from pathlib import Path
 
 from mojomark.compare import BenchmarkDiff, Status, summarize_diffs
 
-REPORTS_DIR = Path(__file__).parent.parent.parent / "reports"
+REPORTS_DIR = Path.cwd() / "reports"
 
 
 def format_time(ns: float) -> str:

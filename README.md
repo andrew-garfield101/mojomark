@@ -20,6 +20,13 @@ As Mojo evolves rapidly, compiler changes can introduce performance regressions 
 ### Install
 
 ```bash
+pip install mojomark
+```
+
+Or install from source for development:
+
+```bash
+git clone https://github.com/andrew-garfield101/mojomark.git
 cd mojomark
 python3 -m venv .venv
 source .venv/bin/activate
@@ -170,9 +177,8 @@ mojomark/
 │   ├── report.py          # Markdown and HTML report generation
 │   ├── storage.py         # JSON result persistence
 │   ├── machine.py         # Hardware/OS fingerprinting
-│   └── versions.py        # Mojo version management and caching
-├── benchmarks/
-│   └── templates/         # Version-neutral benchmark templates
+│   ├── versions.py        # Mojo version management and caching
+│   └── templates/         # Version-neutral benchmark templates (shipped with package)
 │       ├── collections/   # dict_ops
 │       ├── compute/       # fibonacci, matrix_mul, sorting
 │       ├── io/            # file_read, file_write

@@ -21,7 +21,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-TEMPLATES_DIR = Path(__file__).parent.parent.parent / "benchmarks" / "templates"
+TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 # ---------------------------------------------------------------------------
 # Version profiles — ordered from most specific to least specific.

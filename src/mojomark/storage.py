@@ -7,7 +7,7 @@ from pathlib import Path
 from mojomark.machine import get_machine_info
 from mojomark.runner import BenchmarkResult
 
-RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
+RESULTS_DIR = Path.cwd() / "results"
 
 
 def save_results(
