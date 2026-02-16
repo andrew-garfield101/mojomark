@@ -84,6 +84,17 @@ mojomark regression current latest --threshold-stable 5.0 --threshold-warning 15
 
 Both `regression` and `compare` exit with code 1 if any regressions are detected, making them suitable for CI pipelines.
 
+### Performance Trends
+
+```bash
+mojomark trend                                     # all benchmarks, bar chart view
+mojomark trend --compact                           # sparkline table view
+mojomark trend --category compute                  # filter by category
+mojomark trend --benchmark fibonacci               # single benchmark
+mojomark trend --versions 0.7.0,0.26.1.0           # specific versions
+mojomark trend --export csv --output trends.csv    # export for external analysis
+```
+
 ### Compare, Report, Manage
 
 ```bash
@@ -155,6 +166,7 @@ Python never enters the measurement window all timing is pure Mojo.
 | `run`        | Run benchmarks against the current Mojo version                 |
 | `regression` | Full regression assessment between two versions (run + compare) |
 | `compare`    | Compare previously stored results for two versions              |
+| `trend`      | Show performance trends across all stored versions              |
 | `report`     | Generate Markdown/HTML reports                                  |
 | `doctor`     | Check system requirements and diagnose common issues            |
 | `status`     | Show current version, latest available, cached installations    |

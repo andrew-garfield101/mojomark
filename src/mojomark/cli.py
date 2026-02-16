@@ -1068,6 +1068,184 @@ def regression(
 
 
 # ---------------------------------------------------------------------------
+# trend command
+# ---------------------------------------------------------------------------
+
+
+@main.command()
+@click.option("--benchmark", "-b", default=None, help="Filter to a specific benchmark name.")
+@click.option("--category", "-c", default=None, help="Filter to a specific category.")
+@click.option(
+    "--versions",
+    "-v",
+    default=None,
+    help="Comma-separated list of versions to include.",
+)
+@click.option(
+    "--export",
+    "export_fmt",
+    type=click.Choice(["csv"]),
+    default=None,
+    help="Export trend data to a file.",
+)
+@click.option("--output", "-o", "output_path", default=None, help="Output file for --export.")
+@click.option("--compact", is_flag=True, help="Compact table view with sparklines.")
+def trend(
+    benchmark: str | None,
+    category: str | None,
+    versions: str | None,
+    export_fmt: str | None,
+    output_path: str | None,
+    compact: bool,
+):
+    """Show performance trends across stored Mojo versions.
+
+    Aggregates all stored benchmark results and shows how performance
+    has changed over time. Lower times are better.
+
+    Examples:
+
+        mojomark trend
+
+        mojomark trend --category compute
+
+        mojomark trend --benchmark fibonacci
+
+        mojomark trend --versions 0.7.0,0.26.1.0
+
+        mojomark trend --compact
+
+        mojomark trend --export csv --output trends.csv
+    """
+    from mojomark.trend import export_csv, gather_trends
+
+    version_list = [v.strip() for v in versions.split(",")] if versions else None
+
+    trends = gather_trends(
+        category=category,
+        benchmark=benchmark,
+        versions=version_list,
+    )
+
+    if not trends:
+        console.print("[yellow]No stored results found.[/yellow]")
+        console.print("[dim]Run 'mojomark run' or 'mojomark regression' first.[/dim]")
+        return
+
+    if export_fmt == "csv":
+        csv_data = export_csv(trends)
+        if output_path:
+            from pathlib import Path
+
+            Path(output_path).write_text(csv_data)
+            console.print(f"[green]✓[/green] Exported to {output_path}")
+        else:
+            console.print(csv_data)
+        return
+
+    all_versions = []
+    seen = set()
+    for t in trends:
+        for p in t.points:
+            if p.version not in seen:
+                all_versions.append(p.version)
+                seen.add(p.version)
+
+    _info(
+        f"[bold cyan]mojomark[/bold cyan] — Performance Trends "
+        f"({len(all_versions)} version(s), {len(trends)} benchmark(s))\n"
+    )
+
+    if compact:
+        _print_compact_trends(trends, all_versions)
+    else:
+        _print_detailed_trends(trends)
+
+    _info(
+        "\n  [dim]Tip: mojomark trend --export csv -o trends.csv[/dim]"
+        "\n  [dim]     mojomark trend --compact[/dim]"
+    )
+
+
+def _print_compact_trends(trends, all_versions):
+    """Print a compact table with sparklines."""
+    from mojomark.trend import sparkline
+
+    table = Table(title="Performance Trends", show_lines=False)
+    table.add_column("Category", style="dim", no_wrap=True)
+    table.add_column("Benchmark", style="bold", no_wrap=True)
+
+    for v in all_versions:
+        table.add_column(v, justify="right", no_wrap=True)
+
+    table.add_column("Trend", no_wrap=True)
+    table.add_column("Delta", justify="right", no_wrap=True)
+
+    for t in trends:
+        version_map = {p.version: p for p in t.points}
+        row = [t.category, t.name]
+
+        values = []
+        for v in all_versions:
+            p = version_map.get(v)
+            if p:
+                row.append(format_time(p.mean_ns))
+                values.append(p.mean_ns)
+            else:
+                row.append("[dim]—[/dim]")
+
+        spark = sparkline(values) if values else ""
+        row.append(spark)
+
+        delta = t.overall_delta_pct
+        if delta is not None:
+            if delta <= -5:
+                row.append(f"[bold green]{delta:+.1f}%[/bold green]")
+            elif abs(delta) < 3:
+                row.append(f"[green]{delta:+.1f}%[/green]")
+            elif delta >= 10:
+                row.append(f"[bold red]{delta:+.1f}%[/bold red]")
+            else:
+                row.append(f"[yellow]{delta:+.1f}%[/yellow]")
+        else:
+            row.append("[dim]—[/dim]")
+
+        table.add_row(*row)
+
+    console.print(table)
+
+
+def _print_detailed_trends(trends):
+    """Print a detailed view with horizontal bars per version."""
+    from mojomark.trend import trend_bar
+
+    for i, t in enumerate(trends):
+        if i > 0:
+            console.print()
+
+        label = f"[bold]{t.category}/{t.name}[/bold]"
+        delta = t.overall_delta_pct
+        if delta is not None:
+            if delta <= -5:
+                label += f"  [bold green]{delta:+.1f}%[/bold green]"
+            elif abs(delta) < 3:
+                label += f"  [green]{delta:+.1f}%[/green]"
+            elif delta >= 10:
+                label += f"  [bold red]{delta:+.1f}%[/bold red]"
+            else:
+                label += f"  [yellow]{delta:+.1f}%[/yellow]"
+
+        console.print(f"  {label}")
+
+        max_val = max(p.mean_ns for p in t.points) if t.points else 0
+
+        for p in t.points:
+            bar = trend_bar(p.mean_ns, max_val, width=35)
+            time_str = format_time(p.mean_ns)
+            console.print(f"    [dim]{p.version:14s}[/dim] {time_str:>10s}  [cyan]{bar}[/cyan]")
+
+
+# ---------------------------------------------------------------------------
 # clean command
 # ---------------------------------------------------------------------------
 
