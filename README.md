@@ -8,7 +8,7 @@ Run standardized benchmarks across Mojo versions, track results over time, and d
 
 ## Why?
 
-As Mojo evolves rapidly, compiler changes can introduce performance regressions (or improvements!) that go unnoticed. `mojomark` provides a repeatable, automated way to measure and compare Mojo's performance across versions — with machine fingerprinting, internal nanosecond timing, and a template-based code generation system that produces version-correct benchmarks from a single source of truth.
+As Mojo evolves rapidly, compiler changes can introduce performance regressions (or improvements!) that go unnoticed. `mojomark` provides a repeatable, automated way to measure and compare Mojo's performance across versions, with machine fingerprinting, internal nanosecond timing, and a template based code generation system that produces version-correct benchmarks from a single source of truth.
 
 ## Quick Start
 
@@ -53,9 +53,9 @@ CLI flags always override config file values.
 ### Check Your Environment
 
 ```bash
-mojomark doctor     # verify all dependencies and environment
-mojomark status     # Mojo version, baselines, cached installs
-mojomark versions   # all published Mojo releases
+mojomark doctor   
+mojomark status   
+mojomark versions   
 ```
 
 ### Run Benchmarks
@@ -93,9 +93,9 @@ mojomark clean
 Every command supports `--quiet` and `--verbose` flags:
 
 ```bash
-mojomark --quiet regression current latest     # tables and verdicts only
-mojomark --verbose run                          # extra diagnostic output
-mojomark -q compare 0.7.0 0.26.1.0             # short form
+mojomark --quiet regression current latest
+mojomark --verbose run                         
+mojomark -q compare 0.7.0 0.26.1.0             
 ```
 
 ### Shell Completion
@@ -114,12 +114,14 @@ eval "$(_MOJOMARK_COMPLETE=bash_source mojomark)"
 
 ## Benchmark Categories
 
-| Category    | Benchmarks                           | What It Measures                                          |
-|-------------|--------------------------------------|-----------------------------------------------------------|
-| **compute** | fibonacci, matrix_mul, sorting       | CPU-bound algorithms, loop optimization, recursion        |
-| **memory**  | allocation, struct_ops               | Heap allocation, struct creation, field access, ownership |
-| **simd**    | dot_product, mandelbrot, vector_math | Vectorized operations, floating-point throughput          |
-| **strings** | concat, search                       | String building, byte-level traversal, substring search   |
+| Category        | Benchmarks                                          | What It Measures                                              |
+|-----------------|-----------------------------------------------------|---------------------------------------------------------------|
+| **collections** | dict_ops                                            | Hash table insert/lookup, hashing overhead                    |
+| **compute**     | fibonacci, matrix_mul, sorting                      | CPU-bound algorithms, loop optimization, recursion            |
+| **io**          | file_read, file_write                               | Sequential I/O throughput, syscall overhead, buffering        |
+| **memory**      | allocation, struct_ops                               | Heap allocation, struct creation, field access, ownership     |
+| **simd**        | dot_product, explicit_vectorize, mandelbrot, vector_math | Vectorized ops, explicit SIMD, floating-point throughput |
+| **strings**     | concat, search                                      | String building, byte-level traversal, substring search       |
 
 ## How It Works
 
@@ -137,7 +139,7 @@ eval "$(_MOJOMARK_COMPLETE=bash_source mojomark)"
 
 7. **Reports** — Generates both Markdown and HTML reports with full statistics (mean, median, min, max, std dev).
 
-Python never enters the measurement window — all timing is pure Mojo.
+Python never enters the measurement window all timing is pure Mojo.
 
 ## CLI Commands
 
@@ -171,9 +173,11 @@ mojomark/
 │   └── versions.py        # Mojo version management and caching
 ├── benchmarks/
 │   └── templates/         # Version-neutral benchmark templates
+│       ├── collections/   # dict_ops
 │       ├── compute/       # fibonacci, matrix_mul, sorting
+│       ├── io/            # file_read, file_write
 │       ├── memory/        # allocation, struct_ops
-│       ├── simd/          # dot_product, mandelbrot, vector_math
+│       ├── simd/          # dot_product, explicit_vectorize, mandelbrot, vector_math
 │       └── strings/       # concat, search
 ├── results/               # Stored benchmark results (git-ignored)
 ├── reports/               # Generated reports (git-ignored)
