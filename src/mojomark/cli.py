@@ -78,6 +78,24 @@ def _thresholds_from_cfg(cfg: MojomarkConfig) -> Thresholds:
     )
 
 
+def _user_benchmark_dirs(cfg: MojomarkConfig) -> list:
+    """Resolve user benchmark directories from config."""
+    from pathlib import Path
+
+    dirs = []
+    if cfg.user_benchmarks_dir:
+        user_dir = Path(cfg.user_benchmarks_dir)
+        if not user_dir.is_absolute() and cfg.config_path:
+            user_dir = cfg.config_path.parent / user_dir
+        if user_dir.exists():
+            dirs.append(user_dir)
+    else:
+        default = Path.cwd() / "benchmarks"
+        if default.exists():
+            dirs.append(default)
+    return dirs
+
+
 def _make_progress() -> Progress:
     """Create a Rich progress bar for benchmark runs."""
     return Progress(
@@ -166,7 +184,7 @@ def run(category: str | None, samples: int | None, warmup: int | None):
     _info(f"  Samples: {cfg.samples} | Warmup: {cfg.warmup}")
     _info("")
 
-    benchmarks = discover_benchmarks(category=category)
+    benchmarks = discover_benchmarks(category=category, extra_dirs=_user_benchmark_dirs(cfg))
     if not benchmarks:
         console.print("[yellow]No benchmarks found.[/yellow]")
         return
@@ -249,18 +267,26 @@ def run(category: str | None, samples: int | None, warmup: int | None):
 @click.option("--category", "-c", default=None, help="Filter by category.")
 def list_benchmarks(category: str | None):
     """List available benchmarks."""
-    benchmarks = discover_benchmarks(category=category)
+    cfg = load_config()
+    benchmarks = discover_benchmarks(category=category, extra_dirs=_user_benchmark_dirs(cfg))
     if not benchmarks:
         console.print("[yellow]No benchmarks found.[/yellow]")
         return
 
+    from mojomark.codegen import TEMPLATES_DIR
+
     table = Table(title="Available Benchmarks")
     table.add_column("Category", style="dim")
     table.add_column("Benchmark", style="bold")
-    table.add_column("File", style="dim")
+    table.add_column("Source", style="cyan")
 
     for name, bench_category, path in benchmarks:
-        table.add_row(bench_category, name, str(path.relative_to(path.parent.parent)))
+        try:
+            path.relative_to(TEMPLATES_DIR)
+            source = "built-in"
+        except ValueError:
+            source = "user"
+        table.add_row(bench_category, name, source)
 
     console.print(table)
 
@@ -713,7 +739,7 @@ def doctor():
     else:
         _pass(f"Config: using defaults (no {CONFIG_FILENAME} found)")
 
-    benchmarks = discover_benchmarks()
+    benchmarks = discover_benchmarks(extra_dirs=_user_benchmark_dirs(cfg))
     if benchmarks:
         categories = len({b[1] for b in benchmarks})
         _pass(f"Benchmarks: {len(benchmarks)} templates in {categories} categories")
@@ -982,7 +1008,7 @@ def regression(
     _info(f"  Samples:  {cfg.samples} | Warmup: {cfg.warmup}")
     _info("")
 
-    benchmarks = discover_benchmarks(category=category)
+    benchmarks = discover_benchmarks(category=category, extra_dirs=_user_benchmark_dirs(cfg))
 
     if not benchmarks:
         console.print("[yellow]No benchmarks found.[/yellow]")
@@ -1243,6 +1269,113 @@ def _print_detailed_trends(trends):
             bar = trend_bar(p.mean_ns, max_val, width=35)
             time_str = format_time(p.mean_ns)
             console.print(f"    [dim]{p.version:14s}[/dim] {time_str:>10s}  [cyan]{bar}[/cyan]")
+
+
+# ---------------------------------------------------------------------------
+# add command
+# ---------------------------------------------------------------------------
+
+
+@main.command()
+@click.argument("name")
+@click.option(
+    "--category",
+    "-c",
+    default="custom",
+    help="Benchmark category (default: custom).",
+)
+@click.option(
+    "--dir",
+    "target_dir",
+    default=None,
+    help="Directory to create the benchmark in (default: ./benchmarks/).",
+)
+def add(name: str, category: str, target_dir: str | None):
+    """Scaffold a new custom benchmark template.
+
+    Creates a .mojo template file with the correct section markers
+    and structure for the codegen system.
+
+    Examples:
+
+        mojomark add my_workload
+
+        mojomark add matrix_inv --category compute
+
+        mojomark add my_test --dir ~/my_benchmarks
+    """
+    from pathlib import Path
+
+    from mojomark.codegen import SCAFFOLD_TEMPLATE, validate_template
+
+    cfg = load_config()
+
+    if target_dir:
+        bench_dir = Path(target_dir)
+    elif cfg.user_benchmarks_dir:
+        bench_dir = Path(cfg.user_benchmarks_dir)
+        if not bench_dir.is_absolute() and cfg.config_path:
+            bench_dir = cfg.config_path.parent / bench_dir
+    else:
+        bench_dir = Path.cwd() / "benchmarks"
+
+    category_dir = bench_dir / category
+    template_path = category_dir / f"{name}.mojo"
+
+    if template_path.exists():
+        console.print(f"[yellow]Template already exists: {template_path}[/yellow]")
+        console.print("[dim]Edit it directly or remove it first.[/dim]")
+        return
+
+    category_dir.mkdir(parents=True, exist_ok=True)
+    content = SCAFFOLD_TEMPLATE.format(name=name, category=category)
+    template_path.write_text(content)
+
+    errors = validate_template(template_path)
+    if errors:
+        console.print("[yellow]Warning: scaffold has validation issues:[/yellow]")
+        for err in errors:
+            console.print(f"  [dim]{err}[/dim]")
+
+    console.print(f"[green]✓[/green] Created {template_path}")
+    console.print(f"  Category: [bold]{category}[/bold]")
+    console.print(f"  Template: [dim]{template_path}[/dim]")
+    console.print()
+    console.print("[dim]Edit the template to add your workload, then run:[/dim]")
+    console.print(f"[dim]  mojomark run --category {category}[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# validate command
+# ---------------------------------------------------------------------------
+
+
+@main.command()
+@click.argument("path", type=click.Path(exists=True))
+def validate(path: str):
+    """Validate a benchmark template file.
+
+    Checks that the template has the required structure (WORKLOAD
+    section, KEEP directive) for the codegen system to render it.
+
+    Examples:
+
+        mojomark validate benchmarks/custom/my_workload.mojo
+    """
+    from pathlib import Path
+
+    from mojomark.codegen import validate_template
+
+    template_path = Path(path)
+    errors = validate_template(template_path)
+
+    if errors:
+        console.print(f"[red]✗[/red] {template_path}")
+        for err in errors:
+            console.print(f"  [red]{err}[/red]")
+        sys.exit(1)
+    else:
+        console.print(f"[green]✓[/green] {template_path} — valid")
 
 
 # ---------------------------------------------------------------------------

@@ -53,6 +53,9 @@ improved = -5.0    # delta <= -5%  →  >> improved
 
 [report]
 format = "both"    # markdown | html | both | none
+
+[benchmarks]
+# user_dir = "benchmarks"   # directory for custom user benchmarks
 ```
 
 CLI flags always override config file values.
@@ -94,6 +97,32 @@ mojomark trend --benchmark fibonacci               # single benchmark
 mojomark trend --versions 0.7.0,0.26.1.0           # specific versions
 mojomark trend --export csv --output trends.csv    # export for external analysis
 ```
+
+### Custom Benchmarks
+
+Create your own benchmarks alongside the built-in suite:
+
+```bash
+mojomark add my_workload                        # scaffolds benchmarks/custom/my_workload.mojo
+mojomark add matrix_inv --category compute       # custom category
+mojomark add my_test --dir ~/my_benchmarks       # custom directory
+mojomark validate benchmarks/custom/my_workload.mojo  # check template structure
+```
+
+Edit the scaffolded `.mojo` file to add your workload, then run:
+
+```bash
+mojomark run --category custom
+```
+
+User benchmarks are automatically discovered from `./benchmarks/` (or a custom path in `mojomark.toml`):
+
+```toml
+[benchmarks]
+user_dir = "benchmarks"   # relative to mojomark.toml
+```
+
+Templates require three sections: `# ==WORKLOAD==` (the code to measure), `# KEEP: varname type` (prevents dead code elimination), and optionally `# ==SETUP==` and `# ==MODULE==` for initialization. User templates override built-in ones with the same category/name.
 
 ### Compare, Report, Manage
 
@@ -168,11 +197,13 @@ Python never enters the measurement window all timing is pure Mojo.
 | `compare`    | Compare previously stored results for two versions              |
 | `trend`      | Show performance trends across all stored versions              |
 | `report`     | Generate Markdown/HTML reports                                  |
+| `add`        | Scaffold a new custom benchmark template                        |
+| `validate`   | Check a template file for required structure                    |
 | `doctor`     | Check system requirements and diagnose common issues            |
 | `status`     | Show current version, latest available, cached installations    |
 | `versions`   | List all published Mojo versions from the package index         |
 | `history`    | Show stored benchmark result files                              |
-| `list`       | List available benchmark templates                              |
+| `list`       | List available benchmark templates (built-in + user)            |
 | `init`       | Create a default `mojomark.toml` configuration file             |
 | `clean`      | Remove cached Mojo installations from ~/.mojomark               |
 

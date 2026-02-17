@@ -41,6 +41,9 @@ improved = -5.0    # delta <= improved  →  >> improved
 [report]
 format = "both"    # markdown | html | both | none
 # output_dir = "reports"
+
+[benchmarks]
+# user_dir = "benchmarks"   # directory for custom user benchmarks
 """
 
 
@@ -55,6 +58,7 @@ class MojomarkConfig:
     threshold_improved: float = -5.0
     report_format: str = "both"
     report_output_dir: str | None = None
+    user_benchmarks_dir: str | None = None
     config_path: Path | None = field(default=None, repr=False)
 
 
@@ -128,6 +132,10 @@ def load_config(config_path: Path | None = None) -> MojomarkConfig:
         cfg.report_format = str(report["format"])
     if "output_dir" in report:
         cfg.report_output_dir = str(report["output_dir"])
+
+    benchmarks = data.get("benchmarks", {})
+    if "user_dir" in benchmarks:
+        cfg.user_benchmarks_dir = str(benchmarks["user_dir"])
 
     return cfg
 

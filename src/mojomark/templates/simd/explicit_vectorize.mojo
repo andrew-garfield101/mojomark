@@ -7,11 +7,15 @@ Uses explicit SIMD[DType.float32, N] operations rather than relying on
 the compiler's auto-vectorization. Tests hardware SIMD unit throughput.
 """
 
-# IMPORT: from sys.info import simdwidthof
-
 # ==MODULE==
-
+{{#MODERN}}
+from sys import simd_width_of
+{{CONST}} NELTS = simd_width_of[DType.float32]()
+{{/MODERN}}
+{{#LEGACY}}
+from sys.info import simdwidthof
 {{CONST}} NELTS = simdwidthof[DType.float32]()
+{{/LEGACY}}
 
 # ==SETUP==
 var iterations = 500000

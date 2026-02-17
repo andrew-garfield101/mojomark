@@ -8,8 +8,8 @@ conditional blocks for structural differences.
 The renderer applies a version profile and wraps the workload in the
 appropriate timing harness:
 
-* **modern** (>=0.26): ``benchmark.run[]`` with ``keep()``/``black_box()``
-* **transitional** (0.25.x): ``time.now()`` with modern collection types
+* **modern** (>=0.26): ``benchmark.run[]`` with ``keep()``/``black_box()``, ``comptime``
+* **transitional** (0.25.x): ``benchmark.run[]`` with ``alias`` instead of ``comptime``
 * **legacy** (<0.25): ``time.now()`` with legacy types (``DynamicVector``)
 """
 
@@ -51,13 +51,13 @@ VERSION_PROFILES: list[dict] = [
             "LIST": "List",
             "APPEND": "append",
             "CONST": "alias",
-            "MUT": "inout",
-            "STRUCT_DECORATOR": "",
-            "STRUCT_TRAITS": "CollectionElement",
-            "MOVE_SUFFIX": "",
+            "MUT": "mut",
+            "STRUCT_DECORATOR": "@fieldwise_init",
+            "STRUCT_TRAITS": "Copyable, Movable",
+            "MOVE_SUFFIX": "^",
         },
-        "harness": "manual_timing",
-        "conditional": "LEGACY",
+        "harness": "benchmark_module",
+        "conditional": "MODERN",
     },
     {
         "name": "legacy",
@@ -266,8 +266,12 @@ def _build_modern(parsed: dict, profile: dict) -> str:
     workload_code = _strip_blank_edges(_expand(parsed["workload"], profile))
     parts.append(_indent(workload_code, 8))
 
-    for varname, _ in parsed["keeps"]:
-        parts.append(f"        keep({varname})")
+    _TRIVIAL_KEEP = {"int", "float"}
+    for varname, type_hint in parsed["keeps"]:
+        if type_hint in _TRIVIAL_KEEP:
+            parts.append(f"        keep({varname})")
+        else:
+            parts.append(f"        keep(len({varname}))")
     parts.append("")
 
     parts.append("    var report = benchmark.run[workload](2, 1_000_000_000, 0.1, 2)")
@@ -387,23 +391,96 @@ def render_to_file(
 def discover_templates(
     templates_dir: Path = TEMPLATES_DIR,
     category: str | None = None,
+    extra_dirs: list[Path] | None = None,
 ) -> list[tuple[str, str, Path]]:
-    """Discover benchmark templates.
+    """Discover benchmark templates from built-in and user directories.
+
+    User templates with the same category/name as built-in ones take
+    precedence (override).
+
+    Args:
+        templates_dir: Primary (built-in) templates directory.
+        category: Filter to a specific category.
+        extra_dirs: Additional directories to scan (e.g. user benchmarks).
 
     Returns:
         Sorted list of ``(name, category, template_path)`` tuples.
     """
-    templates = []
-    if not templates_dir.exists():
-        return templates
+    seen: dict[str, tuple[str, str, Path]] = {}
 
-    for template_file in sorted(templates_dir.rglob("*.mojo")):
-        tmpl_category = template_file.parent.name
-        tmpl_name = template_file.stem
-
-        if category and tmpl_category != category:
+    for search_dir in [templates_dir, *(extra_dirs or [])]:
+        if not search_dir.exists():
             continue
+        for template_file in sorted(search_dir.rglob("*.mojo")):
+            tmpl_category = template_file.parent.name
+            tmpl_name = template_file.stem
 
-        templates.append((tmpl_name, tmpl_category, template_file))
+            if category and tmpl_category != category:
+                continue
 
-    return templates
+            key = f"{tmpl_category}/{tmpl_name}"
+            seen[key] = (tmpl_name, tmpl_category, template_file)
+
+    return sorted(seen.values(), key=lambda t: (t[1], t[0]))
+
+
+def validate_template(path: Path) -> list[str]:
+    """Validate a benchmark template file.
+
+    Checks that the template has the required structure for the
+    codegen system to render it correctly.
+
+    Args:
+        path: Path to the ``.mojo`` template file.
+
+    Returns:
+        List of error messages. Empty list means valid.
+    """
+    errors: list[str] = []
+
+    if not path.exists():
+        return [f"File not found: {path}"]
+
+    if not path.suffix == ".mojo":
+        errors.append(f"Expected .mojo extension, got {path.suffix}")
+
+    text = path.read_text()
+
+    if not text.strip():
+        return ["Template file is empty."]
+
+    parsed = _parse_template(text)
+
+    workload = parsed["workload"].strip()
+    if not workload:
+        errors.append("Missing WORKLOAD section — template must define code to benchmark.")
+
+    if not parsed["keeps"]:
+        errors.append(
+            "Missing KEEP directive — add '# KEEP: varname type' to prevent dead code elimination."
+        )
+
+    if "# ==WORKLOAD==" not in text:
+        errors.append("Missing '# ==WORKLOAD==' section marker.")
+
+    return errors
+
+
+SCAFFOLD_TEMPLATE = '''\
+"""Benchmark: {name}
+Category: {category}
+Measures: <describe what this benchmark measures>
+"""
+
+# ==MODULE==
+
+# ==SETUP==
+
+# ==WORKLOAD==
+var result: Int = 0
+
+for i in range(1000):
+    result += i
+
+# KEEP: result int
+'''

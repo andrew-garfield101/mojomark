@@ -75,23 +75,29 @@ class BenchmarkResult:
 def discover_benchmarks(
     benchmarks_dir: Path | None = None,
     category: str | None = None,
+    extra_dirs: list[Path] | None = None,
 ) -> list[tuple[str, str, Path]]:
     """Discover benchmark templates.
 
-    Scans the ``benchmarks/templates/`` directory for ``.mojo`` template
-    files.  Each template is version-neutral; the codegen module renders
-    them into version-specific source at compile time.
+    Scans the built-in templates directory and any extra directories
+    for ``.mojo`` template files.  User templates override built-in
+    ones with the same category/name.
 
     Args:
         benchmarks_dir: Override the templates directory (useful for tests).
         category: If given, only return templates in this category.
+        extra_dirs: Additional directories to scan (user benchmarks).
 
     Returns:
         List of (name, category, path) tuples.
     """
     from mojomark.codegen import TEMPLATES_DIR, discover_templates
 
-    return discover_templates(benchmarks_dir or TEMPLATES_DIR, category)
+    return discover_templates(
+        benchmarks_dir or TEMPLATES_DIR,
+        category,
+        extra_dirs=extra_dirs,
+    )
 
 
 def get_mojo_version(mojo_binary: Path | None = None) -> str:

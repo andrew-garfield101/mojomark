@@ -226,3 +226,28 @@ class TestMergeCliOverrides:
             merge_cli_overrides(cfg, samples=99)
             assert cfg.samples == 99
             assert cfg.warmup == 8
+
+
+# ---------------------------------------------------------------------------
+# User benchmarks dir
+# ---------------------------------------------------------------------------
+
+
+class TestUserBenchmarksDir:
+    def test_default_is_none(self):
+        cfg = MojomarkConfig()
+        assert cfg.user_benchmarks_dir is None
+
+    def test_loads_from_toml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / CONFIG_FILENAME
+            config_path.write_text('[benchmarks]\nuser_dir = "my_benches"\n')
+            cfg = load_config(config_path=config_path)
+            assert cfg.user_benchmarks_dir == "my_benches"
+
+    def test_absent_section_keeps_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / CONFIG_FILENAME
+            config_path.write_text("[benchmark]\nsamples = 5\n")
+            cfg = load_config(config_path=config_path)
+            assert cfg.user_benchmarks_dir is None

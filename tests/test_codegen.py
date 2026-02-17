@@ -61,7 +61,9 @@ class TestGetProfile:
         assert profile["name"] == "transitional"
         assert profile["tokens"]["LIST"] == "List"
         assert profile["tokens"]["CONST"] == "alias"
-        assert profile["harness"] == "manual_timing"
+        assert profile["tokens"]["MUT"] == "mut"
+        assert profile["harness"] == "benchmark_module"
+        assert profile["conditional"] == "MODERN"
 
     def test_very_old_version(self):
         profile = get_profile("0.1.0")
@@ -428,12 +430,12 @@ class TestConditionalBlocks:
             assert "legacy_func()" in result
             assert "modern_func()" not in result
 
-    def test_transitional_keeps_legacy_block(self):
+    def test_transitional_keeps_modern_block(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = self._write_template(Path(tmp), self.COND_TEMPLATE)
             result = render_template(path, "0.25.7.0")
-            assert "legacy_func()" in result
-            assert "modern_func()" not in result
+            assert "modern_func()" in result
+            assert "legacy_func()" not in result
 
 
 # ---------------------------------------------------------------------------
